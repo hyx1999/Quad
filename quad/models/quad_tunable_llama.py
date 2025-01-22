@@ -18,7 +18,7 @@ from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from typing import Optional, Tuple
 from transformers import Cache
 from quad import TensorPack
-from quad.modules import QuantLinearW4A4, QuantLinearW4A8, Quantizer, OnlineHadamard
+from quad.modules import TunableQuantizer, TunableQuantLinear
 from tqdm import tqdm
 from enum import Enum
 
@@ -42,16 +42,7 @@ class QuadTunableLlamaConfig(LlamaConfig):
 class LinearTypeMixin:
     
     def get_linear_type(self):
-        if self.config.quant_mode == QuantMode.w4a4:
-            QuantLinearU = QuantLinearW4A4
-            QuantLinearD = QuantLinearW4A4
-        elif self.config.quant_mode == QuantMode.w4a8:
-            QuantLinearU = QuantLinearW4A8
-            QuantLinearD = QuantLinearW4A8
-        else:
-            QuantLinearU = QuantLinearW4A8
-            QuantLinearD = QuantLinearW4A8
-        return QuantLinearU, QuantLinearD
+        return TunableQuantLinear, TunableQuantLinear
     
     def get_act_type(self):
         if self.config.quant_mode == QuantMode.w4a4:
@@ -75,7 +66,7 @@ class QuadTunableLlamaAttention(LlamaFlashAttention2, LinearTypeMixin):
         actU, actD = self.get_act_type()
         
         config: QuadTunableLlamaConfig = self.config
-        self.quantizer = Quantizer(
+        self.quantizer = TunableQuantizer(
             config.hidden_size,
             config.pod_rank,
             config.input_clip_ratio,
@@ -86,7 +77,7 @@ class QuadTunableLlamaAttention(LlamaFlashAttention2, LinearTypeMixin):
         self.v_proj = QLinearU.from_float(self.v_proj, pod_rank=config.pod_rank)
         self.o_proj_hadamard = quad.modules.OnlineHadamard(self.num_heads)
         self.o_proj = nn.Sequential(
-            Quantizer(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
+            TunableQuantizer(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
             QLinearD.from_float(self.o_proj, extra_out=config.pod_rank)
         )
         
@@ -209,7 +200,7 @@ class QuadTunableLlamaMLP(LlamaMLP, LinearTypeMixin):
         actU, actD = self.get_act_type()
 
         config: QuadTunableLlamaConfig = self.config
-        self.quantizer = Quantizer(
+        self.quantizer = TunableQuantizer(
             config.hidden_size,
             config.pod_rank,
             config.input_clip_ratio,
@@ -219,7 +210,7 @@ class QuadTunableLlamaMLP(LlamaMLP, LinearTypeMixin):
         self.gate_proj = QLinearU.from_float(self.gate_proj, pod_rank=config.pod_rank)
         self.down_proj = torch.nn.Sequential(
             quad.modules.OnlineHadamard(self.intermediate_size),
-            Quantizer(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
+            TunableQuantizer(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
             QLinearD.from_float(self.down_proj, extra_out=config.pod_rank),
         )
 

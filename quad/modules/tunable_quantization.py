@@ -55,17 +55,9 @@ class TunableQuantizer(torch.nn.Module):  # Quantizier with STE backward pass
         return x, outlier_x
     
     def quantize(self, x: torch.Tensor):
-        if self.act_dtype == "int4":
-            scales_x = (torch.max(torch.abs(x), dim=-1).values.unsqueeze(-1) / 7).to(
-                torch.float16
-            ) * self.input_clip_ratio
-            quantized_x = quad.ops.sym_quant_int8(x, scales_x)
-        else:
-            scales_x = (torch.max(torch.abs(x), dim=-1).values.unsqueeze(-1) / 127).to(
-                torch.float16
-            ) * self.input_clip_ratio
-            quantized_x = quad.ops.sym_quant_int8(x, scales_x)
-        return quad.QTensor(quantized_x, scales_x)
+        return QuantFn.apply(
+            x, QuantParams(clip_ratio=self.input_clip_ratio, act_dtype=self.act_dtype)
+        )
 
     def forward(self, x):
         x, outlier_x = self.split(x)
