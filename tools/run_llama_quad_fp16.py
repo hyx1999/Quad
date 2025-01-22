@@ -10,7 +10,7 @@ from quad.entry import (
     utils,
     data_utils,
 )
-from quad.models.quant_fp16_llama import QuantFp16LlamaConfig, QuantFp16LlamaForCausalLM
+from quad.models.quad_fp16_llama import QuadFp16LlamaConfig, QuadFp16LlamaForCausalLM
 import logging
 
 print(os.environ["HF_HOME"])
@@ -18,7 +18,7 @@ print(os.environ["HF_HOME"])
 # load_dataset("Rowan/hellaswag", trust_remote_code=True)
 
 def get_llama(args):
-    model = QuantFp16LlamaForCausalLM.from_pretrained(
+    model = QuadFp16LlamaForCausalLM.from_pretrained(
         args.model, 
         attn_implementation="flash_attention_2",
         torch_dtype=torch.float16,
