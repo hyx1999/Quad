@@ -219,7 +219,7 @@ class QuadTunableLlamaMLP(LlamaMLP, LinearTypeMixin):
         return super().forward(x)
 
 
-class QuadLlamaForCausalLM(LlamaForCausalLM):
+class QuadTunableLlamaForCausalLM(LlamaForCausalLM):
 
     def __init__(self, config):
         super().__init__(config)
