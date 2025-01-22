@@ -1,0 +1,11 @@
+.cache
+.vscode
+*.bak
+third_party
+misc
+__pycache__
+*/__pycache__
+quad/kernels/build
+quad/kernels/dist
+quad/kernels/quad_cuda.egg-info
+quad/kernels/third_party
