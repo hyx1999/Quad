@@ -1,5 +1,10 @@
 import torch
+import logging
 
+# These flags disable using TensorFloat-32 tensor cores (to avoid numerical issues)
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
+DEV = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 
 def two_compl(x, bits: int):
     return torch.where(x < 0, 2**bits + x, x)
@@ -80,3 +85,31 @@ def sym_dequant(q, scale):
 
 def sym_quant_dequant(x, scale, maxq):
     return sym_dequant(*sym_quant(x, scale, maxq))
+
+
+def cleanup_memory(verbos=True) -> None:
+    """Run GC and clear GPU memory."""
+    import gc
+    import inspect
+    caller_name = ''
+    try:
+        caller_name = f' (from {inspect.stack()[1].function})'
+    except (ValueError, KeyError):
+        pass
+
+    def total_reserved_mem() -> int:
+        return sum(torch.cuda.memory_reserved(device=i) for i in range(torch.cuda.device_count()))
+
+    memory_before = total_reserved_mem()
+
+    # gc.collect and empty cache are necessary to clean up GPU memory if the model was distributed
+    gc.collect()
+
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        memory_after = total_reserved_mem()
+        if verbos:
+            logging.info(
+                f"GPU memory{caller_name}: {memory_before / (1024 ** 3):.2f} -> {memory_after / (1024 ** 3):.2f} GB"
+                f" ({(memory_after - memory_before) / (1024 ** 3):.2f} GB)"
+            )

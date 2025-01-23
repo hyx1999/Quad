@@ -5,14 +5,14 @@ import json
 import torch
 import transformers
 from typing import Dict
-from quad.entry import data_utils, utils
-from quad.entry.rotation import (
+from quad.quant import data_utils, utils
+from quad.quant.rotation import (
     rotation_utils,
     pod_utils,
     svd_utils,
 )
-from quad.entry.modules import module_utils
-from quad.entry.quantization import(
+from quad.quant.modules import module_utils
+from quad.quant.quantization import(
     gptq_utils
 )
 from quad.models.quad_fp16_llama import QuadFp16LlamaConfig, QuadFp16LlamaForCausalLM

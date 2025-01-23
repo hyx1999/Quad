@@ -6,14 +6,14 @@ import torch
 import transformers
 from transformers import AutoTokenizer
 from typing import Dict
-from quad.entry import data_utils, utils
-from quad.entry.rotation import (
+from quad.quant import data_utils, utils
+from quad.quant.rotation import (
     rotation_utils,
     pod_utils,
     svd_utils,
 )
-from quad.entry.modules import module_utils
-from quad.entry.quantization import(
+from quad.quant.modules import module_utils
+from quad.quant.quantization import(
     gptq_utils
 )
 from quad.models.quad_llama import QuadLlamaConfig, QuadLlamaForCausalLM
@@ -67,7 +67,7 @@ def main(args):
     if not args.w_rtn:
         trainloader = data_utils.get_loaders(
             args.cal_dataset, nsamples=args.nsamples,
-            seed=args.seed, model=args.pretraiend_path_or_name,
+            seed=args.seed, model=args.model,
             seqlen=model.seqlen, eval_mode=False
         )
         quantizers = gptq_utils.gptq_fwrd(model, trainloader, device, args)
@@ -129,7 +129,7 @@ if __name__ == "__main__":
         help='Clip ratio for activation quantization. new_max = max * clip_ratio')
     parser.add_argument('--nsamples', type=int, default=128,
                         help='Number of calibration data samples for GPTQ.')
-    parser.add_argument('--cal_dataset', type=str, default='wikitext2',
+    parser.add_argument('--cal_dataset', type=str, default='c4',
                         help='calibration data samples for GPTQ.')
     parser.add_argument('--percdamp', type=float, default=.01,
                         help='Percent of the average Hessian diagonal to use for dampening.')
