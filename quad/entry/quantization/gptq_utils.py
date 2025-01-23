@@ -194,11 +194,11 @@ def gptq_fwrd(model, dataloader, dev, args):
 
     quantizers = {}
     sequential = [
-                ['self_attn.k_proj.module', 'self_attn.v_proj.module', 'self_attn.q_proj.module'],
-                ['self_attn.o_proj.module'],
-                ['mlp.up_proj.module', 'mlp.gate_proj.module'],
-                ['mlp.down_proj.module']
-            ]
+        ['self_attn.k_proj.module', 'self_attn.v_proj.module', 'self_attn.q_proj.module'],
+        ['self_attn.o_proj.module'],
+        ['mlp.up_proj.module', 'mlp.gate_proj.module'],
+        ['mlp.down_proj.module']
+    ]
     for i in range(len(layers)):
         print(f'\nLayer {i}:', flush=True, end=' ')
         layer = layers[i].to(dev)
