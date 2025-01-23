@@ -23,3 +23,9 @@ def sym_dequant(q, scale_row, scale_col, bits=32):
     assert scale_row.dtype == scale_col.dtype == torch.float16
     q, q_shape_excl_last = flatten_last_dim_and_return_shape(q)
     return quad_cuda.sym_dequant(q, scale_row.view(-1), scale_col, bits).view(*q_shape_excl_last, -1)
+
+def sym_dequant_weight(q, scale_row, bits=4):
+    assert q.dtype == torch.uint8
+    assert scale_row.dtype == torch.float16 or scale_row.dtype == torch.bfloat16
+    q, q_shape_excl_last = flatten_last_dim_and_return_shape(q)
+    return quad_cuda.sym_dequant_weight(q, scale_row.view(-1), bits).view(*q_shape_excl_last, -1)

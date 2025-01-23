@@ -15,24 +15,26 @@ class QuantFn(Function):
     @staticmethod
     def forward(ctx, x: torch.Tensor, params: QuantParams):
         if params.act_dtype == "int4":
-            scales_x: torch.Tensor = (torch.max(torch.abs(x), dim=-1).values.unsqueeze(-1) / 7).to(
-                torch.float16
-            ) * params.clip_ratio
+            scales_x: torch.Tensor = (torch.max(torch.abs(x), dim=-1)\
+                .values.unsqueeze(-1) / 7)\
+                .to(x.dtype) * params.clip_ratio
             q_min = -8
             q_max = 7
         else:
-            scales_x: torch.Tensor = (torch.max(torch.abs(x), dim=-1).values.unsqueeze(-1) / 127).to(
-                torch.float16
-            ) * params.clip_ratio
+            scales_x: torch.Tensor = (torch.max(torch.abs(x), dim=-1)\
+                .values.unsqueeze(-1) / 127)\
+                .to(x.dtype) * params.clip_ratio
             q_min = -128
             q_max = 127
+        eps = 1e-5
+        scales_x[scales_x == 0] = eps
         quantized_x = (x / scales_x).round().clamp(q_min, q_max)
-        x = quantized_x.type(torch.float16) * scales_x
+        x = quantized_x.type(x.dtype) * scales_x
         return x
     
     @staticmethod
     def backward(ctx, grad_x):
-        return grad_x
+        return grad_x, None
 
 
 class TunableQuantizer(torch.nn.Module):  # Quantizier with STE backward pass

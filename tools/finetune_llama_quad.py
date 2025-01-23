@@ -68,6 +68,11 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune a transformers model on a causal language modeling task")
     parser.add_argument(
+        "--prompt_template_name",
+        type=str,
+        default="alpaca",
+    )
+    parser.add_argument(
         "--dataset_name",
         type=str,
         default=None,
@@ -131,6 +136,12 @@ def parse_args():
         default=5e-5,
         help="Initial learning rate (after the potential warmup period) to use.",
     )
+    parser.add_argument(
+        "--min_learning_rate",
+        type=float,
+        default=0,
+        help="Final learning rate (after the potential warmup period) to use.",
+    )
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay to use.")
     parser.add_argument("--num_train_epochs", type=int, default=3, help="Total number of training epochs to perform.")
     parser.add_argument(
@@ -144,13 +155,6 @@ def parse_args():
         type=int,
         default=1,
         help="Number of updates steps to accumulate before performing a backward/update pass.",
-    )
-    parser.add_argument(
-        "--lr_scheduler_type",
-        type=SchedulerType,
-        default="linear",
-        help="The scheduler type to use.",
-        choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"],
     )
     parser.add_argument(
         "--num_warmup_steps", type=int, default=0, help="Number of steps for the warmup in the lr scheduler."
@@ -173,6 +177,21 @@ def parse_args():
             " this size for training. Default to the model max input length for single sentence inputs (take into"
             " account special tokens)."
         ),
+    )
+    parser.add_argument(
+        "--cutoff_len",
+        type=int,
+        default=None,
+        help=(
+            "Optional input sequence length after tokenization. The training dataset will be truncated by"
+            " this size for training. Default to the model max input length for single sentence inputs (take into"
+            " account special tokens)."
+        ),
+    )
+    parser.add_argument(
+        "--val_set_size",
+        type=int,
+        default=1000,
     )
     parser.add_argument(
         "--preprocessing_num_workers",
@@ -299,15 +318,16 @@ def main():
         config = QuadTunableLlamaConfig.from_pretrained(
             args.config_name,
             trust_remote_code=args.trust_remote_code,
+            attn_implementation="flash_attention_2"
         )
     elif args.model_name_or_path:
         config = QuadTunableLlamaConfig.from_pretrained(
             args.model_name_or_path,
             trust_remote_code=args.trust_remote_code,
+            attn_implementation="flash_attention_2",
         )
     else:
-        config = CONFIG_MAPPING[args.model_type]()
-        logger.warning("You are instantiating a new config instance from scratch.")
+        raise ValueError
 
     if args.tokenizer_name:
         tokenizer = AutoTokenizer.from_pretrained(
@@ -322,6 +342,8 @@ def main():
             "You are instantiating a new tokenizer from scratch. This is not supported by this script. "
             "You can do it from another script, save it, and load it from here, using --tokenizer_name."
         )
+    tokenizer.pad_token_id = 0 # unk. we want this to be different from the eos token
+    tokenizer.padding_side = "left"  # Allow batched inference
 
     if args.model_name_or_path:
         model = QuadTunableLlamaForCausalLM.from_pretrained(
@@ -342,7 +364,7 @@ def main():
         model.resize_token_embeddings(len(tokenizer))
 
     if args.dataset_name is not None:
-        raw_datasets = load_dataset("json", data_files=args.dataset_name)
+        raw_datasets = load_dataset("json", data_files=args.dataset_name, field="data")
         lm_datasets = process_sft_data(args, raw_datasets, tokenizer, accelerator)
     else:
         raise ValueError
@@ -387,13 +409,14 @@ def main():
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
 
-    lr_scheduler = get_scheduler(
-        name=args.lr_scheduler_type,
+    lr_scheduler = get_cosine_schedule_with_warmup(
         optimizer=optimizer,
         num_warmup_steps=args.num_warmup_steps * accelerator.num_processes,
         num_training_steps=args.max_train_steps
         if overrode_max_train_steps
         else args.max_train_steps * accelerator.num_processes,
+        max_learning_rate=args.learning_rate,
+        min_learning_rate=args.min_learning_rate
     )
 
     # Prepare everything with our `accelerator`.
@@ -422,7 +445,6 @@ def main():
     if args.with_tracking:
         experiment_config = vars(args)
         # TensorBoard cannot log Enums, need the raw value
-        experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
         accelerator.init_trackers("clm_no_trainer", experiment_config)
 
     # Train!
@@ -496,6 +518,7 @@ def main():
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
                 progress_bar.update(1)
+                progress_bar.set_postfix({"step": step, "loss": loss.detach().float().item()})
                 completed_steps += 1
 
             if isinstance(checkpointing_steps, int):
@@ -509,7 +532,11 @@ def main():
 
         model.eval()
         losses = []
-        for step, batch in enumerate(eval_dataloader):
+        for step, batch in tqdm(
+            enumerate(eval_dataloader), 
+            disable=not accelerator.is_local_main_process,
+            desc="evaluate"
+        ):
             with torch.no_grad():
                 outputs = model(**batch)
 

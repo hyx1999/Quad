@@ -7,5 +7,6 @@ from .quant import (
     sym_quant_int8,
     sym_quant_int4,
     sym_dequant,
+    sym_dequant_weight,
 )
 from .utils import flatten_last_dim_and_return_shape

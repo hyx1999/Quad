@@ -3,30 +3,31 @@ import math
 import torch.nn as nn
 import torch.nn.functional as F
 import quad
-import quad_cuda
 from torch.nn.parameter import Parameter
 from torch.autograd import Function
 from typing import Optional
 
 
-class QuantForwardFn(Function):
+class QuantLinearFn(Function):        
 
     @staticmethod
     def forward(ctx, x: torch.Tensor, weight_scales: torch.Tensor, qweight: torch.Tensor):
         ctx.save_for_backward(x, weight_scales, qweight)
         x, x_shape = quad.ops.flatten_last_dim_and_return_shape(x)
-        weight = weight_scales * qweight.type_as(weight_scales)
+        weight = quad.ops.sym_dequant_weight(qweight, weight_scales)
         y = x @ weight.T
         return y.view(*x_shape, -1)
     
     @staticmethod
     def backward(ctx, grad_y):
         x, weight_scales, qweight = ctx.saved_tensors
+        grad_y, _ = quad.ops.flatten_last_dim_and_return_shape(grad_y)
         x, x_shape = quad.ops.flatten_last_dim_and_return_shape(x)
-        weight = weight_scales * qweight.type_as(weight_scales)
+        weight = quad.ops.sym_dequant_weight(qweight, weight_scales)
+        qweight_f = quad.ops.sym_dequant_weight(qweight, torch.ones_like(weight_scales))
         grad_x = (grad_y @ weight).view(*x_shape, -1)
         grad_weight = (x.T @ grad_y).T
-        grad_scale = (grad_weight * qweight.type_as(weight_scales)).sum(dim=1, keepdim=True)
+        grad_scale = (grad_weight * qweight_f).sum(dim=1, keepdim=True)
         return grad_x, grad_scale, None
 
 
@@ -78,9 +79,9 @@ class TunableQuantLinear(torch.nn.Module):
             self.register_parameter("w_outlier", None)
         
     def forward(self, x_pack):
-        x_out = QuantForwardFn.apply(x_pack.x, self.weight_scales, self.weight)
+        x_out = QuantLinearFn.apply(x_pack.x, self.weight_scales, self.weight)
         if self.w_outlier is not None:
-            x_out = x_out + F.linear(x_pack.outlier_x, self.w_outiler)
+            x_out = x_out + F.linear(x_pack.outlier_x, self.w_outlier)
         if self.bias is not None:
             x_out = x_out + self.bias
         return x_out
