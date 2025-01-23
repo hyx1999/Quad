@@ -18,6 +18,12 @@ __device__ __half float_to_half(T value)
     return __float2half(static_cast<float>(value));
 }
 
+template <typename T>
+__device__ __nv_bfloat16 float_to_bf16(T value)
+{
+    return __float2bfloat16(static_cast<float>(value));
+}
+
 __global__ void sym_quantize_f16_i4_kernel(
     const half *__restrict__ x,
     const half *__restrict__ scale,
@@ -52,6 +58,20 @@ __global__ void sym_quantize_f16_i4_kernel(
     q[colDst + row * colsDst] = storage;
 }
 
+void sym_quant_fp16_i4_host(
+    const half *x,
+    const half *scale,
+    uint32_t rows,
+    uint32_t colsSrc,
+    uint32_t colsDst,
+    Int4Storage *q)
+{
+
+    dim3 block{std::min<uint32_t>(colsDst, 32), std::min<uint32_t>(rows, 16)};
+    dim3 grid{cdiv(colsDst, block.x), cdiv(rows, block.y)};
+    sym_quantize_f16_i4_kernel<<<grid, block>>>(x, scale, rows, colsSrc, colsDst, q);
+}
+
 __global__ void sym_quantize_f16_i8_kernel(
     const half *__restrict__ x,
     const half *__restrict__ scale,
@@ -68,7 +88,6 @@ __global__ void sym_quantize_f16_i8_kernel(
     int8_t storage;
     memset(&storage, 0, sizeof(storage));
     uint32_t id = colDst + row * cols;
-#pragma unroll
     bool safe = colDst < cols;
     if (safe)
     {
@@ -76,20 +95,6 @@ __global__ void sym_quantize_f16_i8_kernel(
         storage = static_cast<int8_t>(clamp(__half2int_rn(data), qmin, qmax));
     }
     q[colDst + row * cols] = storage;
-}
-
-void sym_quant_fp16_i4_host(
-    const half *x,
-    const half *scale,
-    uint32_t rows,
-    uint32_t colsSrc,
-    uint32_t colsDst,
-    Int4Storage *q)
-{
-
-    dim3 block{std::min<uint32_t>(colsDst, 32), std::min<uint32_t>(rows, 16)};
-    dim3 grid{cdiv(colsDst, block.x), cdiv(rows, block.y)};
-    sym_quantize_f16_i4_kernel<<<grid, block>>>(x, scale, rows, colsSrc, colsDst, q);
 }
 
 void sym_quant_fp16_i8_host(
@@ -139,4 +144,90 @@ void sym_dequant_host(const int32_t *q,
         q,
         scale_row, scale_col,
         rows, cols, x);
+}
+
+__global__ void sym_dequantize_i4_fp16_kernel(
+    const Int4Storage *__restrict__ q,
+    const half *__restrict__ scale_row,
+    uint32_t rows, uint32_t colsSrc, uint32_t colsDst,
+    half *__restrict__ x)
+{
+    uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
+    uint32_t col = threadIdx.x + blockIdx.x * blockDim.x;
+    if (row >= rows || col >= colsSrc)
+    {
+        return;
+    }
+    Int4Storage storage = q[col + row * colsSrc];
+    uint32_t id = col * kElementsPerVector + row * colsDst;
+#pragma unroll
+    for (int i = 0; i < kElementsPerVector; ++i)
+    {
+        bool safe = (col * kElementsPerVector + i) < colsDst;
+        if (safe)
+        {
+            int q_val = cutlass::int4b_t::xint_t(
+                Int4Subbyte{reinterpret_cast<cutlass::int4b_t *>(&storage), i}.get());
+            float scale_r = __half2float(scale_row[row]);
+            x[id + i] = float_to_half(scale_r * q_val);
+        }
+    }
+}
+
+void sym_dequant_fp16_weight_host(const Int4Storage *q,
+                             const half *scale_row,
+                             uint32_t rows,
+                             uint32_t colsSrc,
+                             uint32_t colsDst,
+                             half *x)
+{
+    dim3 block{std::min<uint32_t>(colsSrc, 16), std::min<uint32_t>(rows, 16)};
+    dim3 grid{cdiv(colsSrc, block.x), cdiv(rows, block.y)};
+    sym_dequantize_i4_fp16_kernel<<<grid, block>>>(
+        q,
+        scale_row,
+        rows, colsSrc, colsDst, x);
+}
+
+__global__ void sym_dequantize_i4_bf16_kernel(
+    const Int4Storage *__restrict__ q,
+    const __nv_bfloat16 *__restrict__ scale_row,
+    uint32_t rows, uint32_t colsSrc, uint32_t colsDst,
+    __nv_bfloat16 *__restrict__ x)
+{
+    uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
+    uint32_t col = threadIdx.x + blockIdx.x * blockDim.x;
+    if (row >= rows || col >= colsSrc)
+    {
+        return;
+    }
+    Int4Storage storage = q[col + row * colsSrc];
+    uint32_t id = col * kElementsPerVector + row * colsDst;
+#pragma unroll
+    for (int i = 0; i < kElementsPerVector; ++i)
+    {
+        bool safe = (col * kElementsPerVector + i) < colsDst;
+        if (safe)
+        {
+            int q_val = cutlass::int4b_t::xint_t(
+                Int4Subbyte{reinterpret_cast<cutlass::int4b_t *>(&storage), i}.get());
+            float scale_r = __bfloat162float(scale_row[row]);
+            x[id + i] = float_to_bf16(scale_r * q_val);
+        }
+    }
+}
+
+void sym_dequant_bf16_weight_host(const Int4Storage *q,
+                             const __nv_bfloat16 *scale_row,
+                             uint32_t rows,
+                             uint32_t colsSrc,
+                             uint32_t colsDst,
+                             __nv_bfloat16 *x)
+{
+    dim3 block{std::min<uint32_t>(colsSrc, 16), std::min<uint32_t>(rows, 16)};
+    dim3 grid{cdiv(colsSrc, block.x), cdiv(rows, block.y)};
+    sym_dequantize_i4_bf16_kernel<<<grid, block>>>(
+        q,
+        scale_row,
+        rows, colsSrc, colsDst, x);
 }

@@ -52,45 +52,6 @@ void matmul_w4a4_host(
            cutlassGetStatusString(status));
 }
 
-void matmul_w8a8_host(
-    const int8_t *A,
-    const int8_t *B,
-    uint32_t M,
-    uint32_t N,
-    uint32_t K,
-    int32_t *C)
-{
-    using Gemm = cutlass::gemm::device::Gemm<
-        int8_t,               // ElementA
-        cutlass::layout::RowMajor,      // LayoutA
-        int8_t,               // ElementB
-        cutlass::layout::ColumnMajor,   // LayoutB
-        int32_t,                        // ElementOutput
-        cutlass::layout::RowMajor,      // LayoutOutput
-        int32_t,                        // ElementAccumulator
-        cutlass::arch::OpClassTensorOp, // tag indicating Tensor Cores
-        cutlass::arch::Sm80             // tag indicating target GPU compute architecture  // TODO: This is just for compiling on my laptop temporarily. Should be higher when doing benchmarking.
-        >;
-
-    Gemm gemmOp;
-
-    using GemmCoord = cutlass::gemm::GemmCoord;
-
-    typename Gemm::Arguments arguments{
-        {static_cast<GemmCoord::Index>(M), static_cast<GemmCoord::Index>(N), static_cast<GemmCoord::Index>(K)},
-        {A, K},
-        {B, K},
-        {C, N},
-        {C, N},
-        {1, 0}};
-
-    auto status = gemmOp(arguments);
-
-    ensure(status == cutlass::Status::kSuccess,
-           cutlassGetStatusString(status));
-}
-
-
 void matmul_w4a8_host(
     const int8_t *A,
     const Int4Storage *B,
@@ -161,3 +122,43 @@ void matmul_w4a8_host(
     // Correctness / Warmup iteration
     CUTLASS_CHECK(device_gemm());
 }
+
+/*
+void matmul_w8a8_host(
+    const int8_t *A,
+    const int8_t *B,
+    uint32_t M,
+    uint32_t N,
+    uint32_t K,
+    int32_t *C)
+{
+    using Gemm = cutlass::gemm::device::Gemm<
+        int8_t,               // ElementA
+        cutlass::layout::RowMajor,      // LayoutA
+        int8_t,               // ElementB
+        cutlass::layout::ColumnMajor,   // LayoutB
+        int32_t,                        // ElementOutput
+        cutlass::layout::RowMajor,      // LayoutOutput
+        int32_t,                        // ElementAccumulator
+        cutlass::arch::OpClassTensorOp, // tag indicating Tensor Cores
+        cutlass::arch::Sm80             // tag indicating target GPU compute architecture  // TODO: This is just for compiling on my laptop temporarily. Should be higher when doing benchmarking.
+        >;
+
+    Gemm gemmOp;
+
+    using GemmCoord = cutlass::gemm::GemmCoord;
+
+    typename Gemm::Arguments arguments{
+        {static_cast<GemmCoord::Index>(M), static_cast<GemmCoord::Index>(N), static_cast<GemmCoord::Index>(K)},
+        {A, K},
+        {B, K},
+        {C, N},
+        {C, N},
+        {1, 0}};
+
+    auto status = gemmOp(arguments);
+
+    ensure(status == cutlass::Status::kSuccess,
+           cutlassGetStatusString(status));
+}
+*/
