@@ -64,6 +64,8 @@ void matmul_w4a8_host(
     using ElementB = cutlass::int4b_t;
     using ElementOutput = int32_t;
     using ElementAccumulator = int32_t;
+    constexpr int AlignmentA = 128 / cutlass::sizeof_bits<ElementA>::value;
+    constexpr int AlignmentB = 128 / cutlass::sizeof_bits<ElementB>::value;
 
     using DeviceGemmT = cutlass::gemm::device::GemmUniversal<
         ElementA,
@@ -83,16 +85,19 @@ void matmul_w4a8_host(
             ElementAccumulator, ElementAccumulator>,
         cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
         4,  // Stages
-        16, // AlignmentA
-        32, // AlignmentB
+        AlignmentA, // AlignmentA
+        AlignmentB, // AlignmentB
         cutlass::arch::OpMultiplyAddMixedInputUpcast,
         cutlass::ComplexTransform::kNone,
         cutlass::ComplexTransform::kNone>;
 
+    cutlass::gemm::GemmCoord problem_size(M, N, K);
+    constexpr auto SplitKFactor = 1;
+
     typename DeviceGemmT::Arguments arguments{
         cutlass::gemm::GemmUniversalMode::kGemm,
-        {M, N, K}, // problem size
-        1,
+        problem_size, // problem size
+        SplitKFactor,
         {1, 0},
         A,
         B,

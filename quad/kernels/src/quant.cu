@@ -95,7 +95,7 @@ __global__ void sym_quantize_f16_i8_kernel(
     if (safe)
     {
         half data = __hdiv(x[id], scale[row]);
-        storage = static_cast<int8_t>(clamp(__half2int_rn(data), qmin, qmax));
+        storage = static_cast<int8_t>(clamp(__half2int_rn(data), qmin_int8, qmax_int8));
     }
     q[colDst + row * cols] = storage;
 }

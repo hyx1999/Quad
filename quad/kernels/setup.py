@@ -21,7 +21,6 @@ def remove_unwanted_pytorch_nvcc_flags():
 
 def get_cuda_arch_flags():
     return [
-        '-gencode', 'arch=compute_75,code=sm_75',  # Turing
         '-gencode', 'arch=compute_80,code=sm_80',  # Ampere
         '-gencode', 'arch=compute_86,code=sm_86',  # Ampere
     ]
@@ -57,6 +56,7 @@ if __name__ == '__main__':
                     'src/bindings.cpp',
                     'src/quant.cu',
                     'src/gemm.cu',
+                    # 'src/s8s4_linear.cu',
                 ],
                 include_dirs=[
                     os.path.join(setup_dir, 'include'),

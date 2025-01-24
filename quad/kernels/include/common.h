@@ -53,6 +53,5 @@ DEVICE T sqr(T x)
 constexpr int qmin = -8;
 constexpr int qmax = 7;
 
-
-
-
+constexpr int qmin_int8 = -128;
+constexpr int qmax_int8 = 127;

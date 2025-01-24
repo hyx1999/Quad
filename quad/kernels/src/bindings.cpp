@@ -32,7 +32,7 @@ torch::Tensor matmul_w4a8(const torch::Tensor &A, const torch::Tensor &B)
                                     {B, "B", 1}});
   uint32_t M = A.size(0);
   uint32_t N = B.size(0);
-  uint32_t K = A.size(1); // 4bit packing is on the columns
+  uint32_t K = A.size(1);
   auto C = torch::empty({M, N}, torch::dtype(torch::kInt32).device(A.device()));
 
   matmul_w4a8_host(A.data_ptr<int8_t>(), B.data_ptr<Int4Storage>(), M, N, K, C.data_ptr<int32_t>());
