@@ -8,6 +8,7 @@ void sym_quant_fp16_i4_host(
     uint32_t rows,
     uint32_t colsSrc,
     uint32_t colsDst,
+    uint32_t stride_row,
     Int4Storage *q);
 
 void sym_quant_fp16_i8_host(
@@ -15,6 +16,7 @@ void sym_quant_fp16_i8_host(
     const half *scale,
     uint32_t rows,
     uint32_t cols,
+    uint32_t stride_row,
     int8_t *q);
 
 void sym_dequant_host(

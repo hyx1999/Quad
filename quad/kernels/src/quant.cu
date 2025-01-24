@@ -30,6 +30,7 @@ __global__ void sym_quantize_f16_i4_kernel(
     uint32_t rows,
     uint32_t colsSrc,
     uint32_t colsDst,
+    uint32_t stride_row,
     Int4Storage *__restrict__ q)
 {
     uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
@@ -40,7 +41,7 @@ __global__ void sym_quantize_f16_i4_kernel(
     }
     Int4Storage storage;
     memset(&storage, 0, sizeof(storage));
-    uint32_t id = colDst * kElementsPerVector + row * colsSrc;
+    uint32_t id = colDst * kElementsPerVector + row * stride_row;
 #pragma unroll
     for (int i = 0; i < kElementsPerVector; ++i)
     {
@@ -64,12 +65,13 @@ void sym_quant_fp16_i4_host(
     uint32_t rows,
     uint32_t colsSrc,
     uint32_t colsDst,
+    uint32_t stride_row,
     Int4Storage *q)
 {
 
     dim3 block{std::min<uint32_t>(colsDst, 32), std::min<uint32_t>(rows, 16)};
     dim3 grid{cdiv(colsDst, block.x), cdiv(rows, block.y)};
-    sym_quantize_f16_i4_kernel<<<grid, block>>>(x, scale, rows, colsSrc, colsDst, q);
+    sym_quantize_f16_i4_kernel<<<grid, block>>>(x, scale, rows, colsSrc, colsDst, stride_row, q);
 }
 
 __global__ void sym_quantize_f16_i8_kernel(
@@ -77,6 +79,7 @@ __global__ void sym_quantize_f16_i8_kernel(
     const half *__restrict__ scale,
     uint32_t rows,
     uint32_t cols,
+    uint32_t stride_row,
     int8_t *__restrict__ q)
 {
     uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
@@ -87,7 +90,7 @@ __global__ void sym_quantize_f16_i8_kernel(
     }
     int8_t storage;
     memset(&storage, 0, sizeof(storage));
-    uint32_t id = colDst + row * cols;
+    uint32_t id = colDst + row * stride_row;
     bool safe = colDst < cols;
     if (safe)
     {
@@ -102,12 +105,13 @@ void sym_quant_fp16_i8_host(
     const half *scale,
     uint32_t rows,
     uint32_t cols,
+    uint32_t stride_row,
     int8_t *q)
 {
 
     dim3 block{std::min<uint32_t>(cols, 32), std::min<uint32_t>(rows, 16)};
     dim3 grid{cdiv(cols, block.x), cdiv(rows, block.y)};
-    sym_quantize_f16_i8_kernel<<<grid, block>>>(x, scale, rows, cols, q);
+    sym_quantize_f16_i8_kernel<<<grid, block>>>(x, scale, rows, cols, stride_row, q);
 }
 
 __global__ void sym_dequantize_i32_f16_kernel(

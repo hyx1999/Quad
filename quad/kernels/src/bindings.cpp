@@ -62,8 +62,7 @@ torch::Tensor matmul_w8a8(const torch::Tensor &A, const torch::Tensor &B)
 
 torch::Tensor sym_quant_fp16_i4(const torch::Tensor &x, const torch::Tensor &scale)
 {
-  torch::checkAllContiguous("sym_quant", {{x, "x", 0},
-                                          {scale, "scale", 1}});
+  torch::checkAllContiguous("sym_quant", {{scale, "scale", 1}});
   torch::checkDeviceType("sym_quant", {x, scale}, at::DeviceType::CUDA);
 
   torch::checkSameGPU("sym_quant", {x, "x", 0}, {scale, "scale", 1});
@@ -71,28 +70,33 @@ torch::Tensor sym_quant_fp16_i4(const torch::Tensor &x, const torch::Tensor &sca
   uint32_t rows = x.size(0);
   uint32_t colsSrc = x.size(1);
   uint32_t colsDst = cdiv(colsSrc, kElementsPerVector);
+  uint32_t stride_row = x.stride(0);
+  uint32_t stride_col = x.stride(1);
+  TORCH_CHECK(stride_col == 1);
 
   auto q = torch::empty({rows, colsDst}, torch::dtype(torch::kUInt8).device(x.device()));
 
-  sym_quant_fp16_i4_host((half *)x.data_ptr(), (half *)scale.data_ptr(), rows, colsSrc, colsDst, q.data_ptr<Int4Storage>());
+  sym_quant_fp16_i4_host((half *)x.data_ptr(), (half *)scale.data_ptr(), rows, colsSrc, colsDst, stride_row, q.data_ptr<Int4Storage>());
 
   return q;
 }
 
 torch::Tensor sym_quant_fp16_i8(const torch::Tensor &x, const torch::Tensor &scale)
 {
-  torch::checkAllContiguous("sym_quant", {{x, "x", 0},
-                                          {scale, "scale", 1}});
+  torch::checkAllContiguous("sym_quant", {{scale, "scale", 1}});
   torch::checkDeviceType("sym_quant", {x, scale}, at::DeviceType::CUDA);
 
   torch::checkSameGPU("sym_quant", {x, "x", 0}, {scale, "scale", 1});
   torch::checkSize("sym_quant", torch::TensorArg{scale, "scale", 1}, 0, x.size(0));
   uint32_t rows = x.size(0);
   uint32_t cols = x.size(1);
+  uint32_t stride_row = x.stride(0);
+  uint32_t stride_col = x.stride(1);
+  TORCH_CHECK(stride_col == 1);
 
   auto q = torch::empty({rows, cols}, torch::dtype(torch::kInt8).device(x.device()));
 
-  sym_quant_fp16_i8_host((half *)x.data_ptr(), (half *)scale.data_ptr(), rows, cols, q.data_ptr<int8_t>());
+  sym_quant_fp16_i8_host((half *)x.data_ptr(), (half *)scale.data_ptr(), rows, cols, stride_row, q.data_ptr<int8_t>());
 
   return q;
 }
