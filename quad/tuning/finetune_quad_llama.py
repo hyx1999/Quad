@@ -57,8 +57,8 @@ from quad.models.quad_tunable_llama import (
     QuadTunableLlamaConfig,
     QuadTunableLlamaForCausalLM
 )
-from tools.utils.scheduler import get_cosine_schedule_with_warmup
-from tools.utils.data_utils import process_sft_data
+from quad.tuning.utils.scheduler import get_cosine_schedule_with_warmup
+from quad.tuning.utils.data_utils import process_sft_data
 
 logger = get_logger(__name__)
 
