@@ -52,26 +52,33 @@ class Quantizer(torch.nn.Module):
         self.pod_rank = pod_rank
         self.input_clip_ratio = input_clip_ratio
         self.act_dtype = act_dtype
+        if act_dtype == "int4":
+            self.quantize = self.quantize_int4
+        else:
+            self.quantize = self.quantize_int8
 
     def split(self, x: torch.Tensor):
         outlier_x, x = torch.split(x, [self.pod_rank, self.hidden_size], dim=-1) \
             if self.pod_rank != 0 else (None, x)
         return x, outlier_x
     
-    def quantize(self, x: torch.Tensor):
-        if self.act_dtype == "int4":
-            scales_x = (torch.max(torch.abs(x), dim=-1).values.unsqueeze(-1) / 7).to(
-                torch.float16
-            ) * self.input_clip_ratio
-            quantized_x = quad.ops.sym_quant_int4(x, scales_x)
-        else:
-            scales_x = (torch.max(torch.abs(x), dim=-1).values.unsqueeze(-1) / 127).to(
-                torch.float16
-            ) * self.input_clip_ratio
-            quantized_x = quad.ops.sym_quant_int8(x, scales_x)
+    @torch.compile
+    def get_scales(self, x: torch.Tensor, q_max: float):
+        scales_x = (torch.max(torch.abs(x), dim=-1).values.unsqueeze(-1) / q_max).to(
+            torch.float16
+        ) * self.input_clip_ratio
+        return scales_x
+    
+    def quantize_int4(self, x: torch.Tensor):
+        scales_x = self.get_scales(x, 7)
+        quantized_x = quad.ops.sym_quant_int4(x, scales_x)
         return quad.QTensor(quantized_x, scales_x)
 
-    @torch.compile
+    def quantize_int8(self, x: torch.Tensor):
+        scales_x = self.get_scales(x, 127)
+        quantized_x = quad.ops.sym_quant_int8(x, scales_x)
+        return quad.QTensor(quantized_x, scales_x)
+
     def forward(self, x):
         x, outlier_x = self.split(x)
         x = self.quantize(x)

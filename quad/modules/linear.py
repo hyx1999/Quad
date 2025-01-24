@@ -144,11 +144,8 @@ class QuantLinearW4A4(torch.nn.Module):
     def init_matmul(self):
         return lambda A, W: quad_cuda.matmul_w4a4(A, W)  # A @ W.T
 
-    @torch.compile
     def forward(self, x_pack):
-        quant_x, x_shape = quad.ops.flatten_last_dim_and_return_shape(
-            x_pack.x.quantized_x
-        )
+        quant_x, x_shape = quad.ops.flatten_last_dim_and_return_shape(x_pack.x.quantized_x)
         scale_x = x_pack.x.scales_x.view(-1)
         x_out = self.matmul(quant_x, self.weight)
         x_out = quad.ops.sym_dequant(x_out, scale_x, self.weight_scales)
@@ -264,7 +261,6 @@ class QuantLinearW8A8(torch.nn.Module):
     def init_matmul(self):
         return lambda A, W: quad_cuda.matmul_w8a8(A, W)  # A @ W.T
 
-    @torch.compile
     def forward(self, x_pack):
         quant_x, x_shape = quad.ops.flatten_last_dim_and_return_shape(
             x_pack.x.quantized_x
