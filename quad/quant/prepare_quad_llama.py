@@ -26,7 +26,7 @@ def convert_state_dict(args, state_dict: Dict[str, torch.Tensor], quantizier: Di
     new_state_dict = {}
     for name, tensor in state_dict.items():
         proj_match = re.search(proj_pattern, name)
-        if args.pod_rank > 0 and proj_match:
+        if proj_match:
             prefix = proj_match.group(1)
             proj_type = proj_match.group(2)
             if proj_type == "o_proj":
@@ -34,10 +34,13 @@ def convert_state_dict(args, state_dict: Dict[str, torch.Tensor], quantizier: Di
             elif proj_type == "down_proj":
                 new_state_dict[f"{prefix}.{proj_type}.2.weight"] = tensor
             else:
-                new_state_dict[name] = tensor[:, args.pod_rank:].contiguous()
-                new_state_dict[f"{prefix}.{proj_type}.w_outlier"] = tensor[:, :args.pod_rank].contiguous()
-            continue
-        new_state_dict[name] = tensor    
+                if args.pod_rank > 0:
+                    new_state_dict[name] = tensor[:, args.pod_rank:].contiguous()
+                    new_state_dict[f"{prefix}.{proj_type}.w_outlier"] = tensor[:, :args.pod_rank].contiguous()
+                else:
+                    new_state_dict[name] = tensor
+        else:
+            new_state_dict[name] = tensor
     key_maps = {
         "mlp.down_proj": "mlp.down_proj.2",
         "self_attn.o_proj": "self_attn.o_proj.1"
@@ -49,8 +52,8 @@ def convert_state_dict(args, state_dict: Dict[str, torch.Tensor], quantizier: Di
         return new_key
     for key, value in quantizier.items():
         new_key = _get_new_key(key)
-        weight_scales = value.scale
-        new_state_dict[f"{new_key}.weight_scales"] = weight_scales.to(utils.DEV)
+        weight_scales = value.scale.to(utils.DEV)
+        new_state_dict[f"{new_key}.weight_scales"] = weight_scales
         weight_matrix = new_state_dict[f"{new_key}.weight"].to(utils.DEV)
         int_rounded_weight = (weight_matrix/weight_scales).round()
         new_state_dict[f"{new_key}.weight"] = pack_i4(int_rounded_weight.to(torch.int8)).to(utils.DEV)
@@ -90,8 +93,6 @@ def main(args):
     result = model.load_state_dict(state_dict, strict=False)
     assert all("had_rem_dim" in key for key in result.missing_keys), result
     assert len(result.unexpected_keys) == 0, result
-
-    # model = model.cpu()
 
     model.save_pretrained(args.save_path)
     with open(f"{args.save_path}/config.json") as f:
@@ -140,8 +141,7 @@ if __name__ == "__main__":
                         help='Random Seed for generating random matrix!!')
     parser.add_argument('--save_path', type=str, required=True)
     parser.add_argument('--pod_rank', type=int, default=0)
-    parser.add_argument('--quant_mode', type=str, default="w4a4a8", choices=["w4a4", "w4a8", "w4a4a8"])
-    parser.add_argument('--disable_online_hadmard', action="store_true")
+    parser.add_argument('--quant_mode', type=str, default="w4a4", choices=["w4a4", "w4a8", "w4a4a8"])
     args = parser.parse_args()
     args.w_bits = 4
     args.w_asym = False

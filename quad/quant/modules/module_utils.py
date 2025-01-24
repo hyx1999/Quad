@@ -268,7 +268,7 @@ def untie_word_embedding(model):
     print("model.config.tie_word_embeddings:", model.config.tie_word_embeddings)
     if model.config.tie_word_embeddings:    
         for emb in embeddings:
-            emb: torch.nn.Embedding = emb
+            emb: torch.nn.Embedding
             emb.weight = torch.nn.Parameter(
                 emb.weight.data.clone(),
                 requires_grad=emb.weight.requires_grad,
