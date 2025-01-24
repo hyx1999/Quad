@@ -141,7 +141,7 @@ if __name__ == "__main__":
                         help='Random Seed for generating random matrix!!')
     parser.add_argument('--save_path', type=str, required=True)
     parser.add_argument('--pod_rank', type=int, default=0)
-    parser.add_argument('--quant_mode', type=str, default="w4a4", choices=["w4a4", "w4a8", "w4a4a8"])
+    parser.add_argument('--quant_mode', type=str, default="w4a4a8", choices=["w4a4", "w4a8", "w4a4a8"])
     args = parser.parse_args()
     args.w_bits = 4
     args.w_asym = False
