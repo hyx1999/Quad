@@ -69,6 +69,7 @@ def convert_state_dict(args, state_dict: Dict[str, torch.Tensor]):
             tensor_2 = param_dict['down_proj']
             new_state_dict[f"{prefix}.quantizier.lora_B"] = tensor_1
             new_state_dict[f"{prefix}.down_proj.1.lora_B"] = tensor_2
+    new_state_dict = {k: v.to(utils.DEV) for k, v in new_state_dict.items()}
     return new_state_dict
 
 
@@ -101,24 +102,25 @@ def main(args):
     torch.set_default_dtype(torch.float16)
     with transformers.modeling_utils.no_init_weights(): 
         model = QuadFp16LlamaForCausalLM(config=config)
+    model.to(utils.DEV)
     result = model.load_state_dict(state_dict, strict=False)
     assert all("had_rem_dim" in key for key in result.missing_keys), result
     assert len(result.unexpected_keys) == 0, result
 
-    model = model.cpu()
+    # model = model.cpu()
 
     model.save_pretrained(args.save_path)
     with open(f"{args.save_path}/config.json") as f:
         config = json.load(f)
     config["auto_map"] = {
-        "AutoConfig": "quad.QuadFp16LlamaConfig",
-        "AutoModelForCausalLM": "quad.QuadFp16LlamaForCausalLM"
+        "AutoConfig": "quad_fp16_llama.QuadFp16LlamaConfig",
+        "AutoModelForCausalLM": "quad_fp16_llama.QuadFp16LlamaForCausalLM"
     }
-    config["model_type"] =  "llama_quad_fp16"
+    config["model_type"] =  "quad_fp16_llama"
     with open(f"{args.save_path}/config.json", "w") as f:
         json.dump(config, f, indent=4)
     
-    shutil.copy("quad/models/quant_fp16_llama.py", f"{args.save_path}/quad.py")
+    shutil.copy("quad/models/quad_fp16_llama.py", f"{args.save_path}/quad_fp16_llama.py")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

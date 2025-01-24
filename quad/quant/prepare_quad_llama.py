@@ -50,10 +50,10 @@ def convert_state_dict(args, state_dict: Dict[str, torch.Tensor], quantizier: Di
     for key, value in quantizier.items():
         new_key = _get_new_key(key)
         weight_scales = value.scale
-        new_state_dict[f"{new_key}.weight_scales"] = weight_scales
-        weight_matrix = new_state_dict[f"{new_key}.weight"]
+        new_state_dict[f"{new_key}.weight_scales"] = weight_scales.to(utils.DEV)
+        weight_matrix = new_state_dict[f"{new_key}.weight"].to(utils.DEV)
         int_rounded_weight = (weight_matrix/weight_scales).round()
-        new_state_dict[f"{new_key}.weight"] = pack_i4(int_rounded_weight.to(torch.int8))
+        new_state_dict[f"{new_key}.weight"] = pack_i4(int_rounded_weight.to(torch.int8)).to(utils.DEV)
     return new_state_dict
 
 def main(args):
@@ -73,7 +73,6 @@ def main(args):
         quantizers = gptq_utils.gptq_fwrd(model, trainloader, device, args)
     else:
         quantizers = gptq_utils.rtn_fwrd(model, device, args)
-
     state_dict = model.state_dict()
     state_dict = convert_state_dict(args, state_dict, quantizers)
     config: QuadLlamaConfig = QuadLlamaConfig.from_pretrained(
@@ -87,24 +86,25 @@ def main(args):
     torch.set_default_dtype(torch.float16)
     with transformers.modeling_utils.no_init_weights(): 
         model = QuadLlamaForCausalLM(config=config)
+    model.to(utils.DEV)
     result = model.load_state_dict(state_dict, strict=False)
     assert all("had_rem_dim" in key for key in result.missing_keys), result
     assert len(result.unexpected_keys) == 0, result
 
-    model = model.cpu()
+    # model = model.cpu()
 
     model.save_pretrained(args.save_path)
     with open(f"{args.save_path}/config.json") as f:
         config = json.load(f)
     config["auto_map"] = {
-        "AutoConfig": "quad.QuadLlamaConfig",
-        "AutoModelForCausalLM": "quad.QuadLlamaForCausalLM"
+        "AutoConfig": "quad_llama.QuadLlamaConfig",
+        "AutoModelForCausalLM": "quad_llama.QuadLlamaForCausalLM"
     }
-    config["model_type"] =  "llama_quad"
+    config["model_type"] =  "quad_llama"
     with open(f"{args.save_path}/config.json", "w") as f:
         json.dump(config, f, indent=4)
     
-    shutil.copy("quad/models/quant_llama.py", f"{args.save_path}/quad.py")
+    shutil.copy("quad/models/quad_llama.py", f"{args.save_path}/quad_llama.py")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     tokenizer.save_pretrained(args.save_path)
 
