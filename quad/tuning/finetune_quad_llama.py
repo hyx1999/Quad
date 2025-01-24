@@ -364,7 +364,7 @@ def main():
         model.resize_token_embeddings(len(tokenizer))
 
     if args.dataset_name is not None:
-        raw_datasets = load_dataset("json", data_files=args.dataset_name, field="data")
+        raw_datasets = load_dataset("json", data_files=args.dataset_name)
         lm_datasets = process_sft_data(args, raw_datasets, tokenizer, accelerator)
     else:
         raise ValueError
