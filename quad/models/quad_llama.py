@@ -49,7 +49,7 @@ class LinearTypeMixin:
             QuantLinearU = QuantLinearW4A8
             QuantLinearD = QuantLinearW4A8
         else:
-            QuantLinearU = QuantLinearW4A8
+            QuantLinearU = QuantLinearW4A4
             QuantLinearD = QuantLinearW4A8
         return QuantLinearU, QuantLinearD
     
