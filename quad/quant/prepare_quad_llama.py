@@ -16,6 +16,7 @@ from quad.quant.modules import module_utils
 from quad.quant.quantization import(
     gptq_utils
 )
+from quad.models.quad_quantable_llama import QuadQuantableLlamaConfig, QuadQuantableLlamaForCausalLM
 from quad.models.quad_llama import QuadLlamaConfig, QuadLlamaForCausalLM
 from .utils import pack_i4
 
@@ -67,6 +68,15 @@ def main(args):
     rotation_utils.fuse_layer_norms(model)
     pod_utils.decompose_model(model, args)
     rotation_utils.rotate_model(model, args)
+    state_dict = model.state_dict()
+    config: QuadQuantableLlamaConfig = QuadQuantableLlamaConfig.from_pretrained(args.model)
+    config.tie_word_embeddings = False
+    config.pod_rank = args.pod_rank
+    with transformers.modeling_utils.no_init_weights():
+        model = QuadQuantableLlamaForCausalLM(config=config)
+        model.seqlen = 2048
+    result = model.load_state_dict(state_dict, strict=False)
+    print("missing_keys:", result.missing_keys)
     if not args.w_rtn:
         trainloader = data_utils.get_loaders(
             args.cal_dataset, nsamples=args.nsamples,
@@ -92,7 +102,7 @@ def main(args):
     model.to(utils.DEV)
     result = model.load_state_dict(state_dict, strict=False)
     assert all("had_rem_dim" in key for key in result.missing_keys), result
-    assert len(result.unexpected_keys) == 0, result
+    assert all("had_rem_dim" in key for key in result.unexpected_keys), result
 
     model.save_pretrained(args.save_path)
     with open(f"{args.save_path}/config.json") as f:
