@@ -4,7 +4,7 @@ import lm_eval.tasks
 import torch
 import transformers
 from datasets import load_dataset
-from .evaluation import eval_utils, ppl_utils
+from .evaluation import ppl_utils
 from .modules import module_utils
 from .quantization import gptq_utils, quant_utils
 from .rotation import (
