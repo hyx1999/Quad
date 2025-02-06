@@ -389,14 +389,19 @@ def main():
 
     # Optimizer
     # Split weights in two groups, one with weight decay and the other not.
+    for n, p in model.named_parameters():
+        if not any(key in n for key in ["w_outlier", "weight_scale"]):
+            p.requires_grad = False
+    params_name = [n for n, p in model.named_parameters() if p.requires_grad]
+    print(params_name)
     no_decay = ["bias", "layernorm.weight"]
     optimizer_grouped_parameters = [
         {
-            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "params": [p for n, p in model.named_parameters() if p.requires_grad and not any(nd in n for nd in no_decay)],
             "weight_decay": args.weight_decay,
         },
         {
-            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "params": [p for n, p in model.named_parameters() if p.requires_grad and any(nd in n for nd in no_decay)],
             "weight_decay": 0.0,
         },
     ]
@@ -520,6 +525,13 @@ def main():
                 progress_bar.update(1)
                 progress_bar.set_postfix({"step": step, "loss": loss.detach().float().item()})
                 completed_steps += 1
+                accelerator.log(
+                    {
+                        "loss": loss.detach().float().item(),
+                        "step": completed_steps,
+                    },
+                    step=completed_steps,
+                )
 
             if isinstance(checkpointing_steps, int):
                 if completed_steps % checkpointing_steps == 0 and accelerator.sync_gradients:
@@ -559,7 +571,6 @@ def main():
                     "eval_loss": eval_loss,
                     "train_loss": total_loss.item() / len(train_dataloader),
                     "epoch": epoch,
-                    "step": completed_steps,
                 },
                 step=completed_steps,
             )
