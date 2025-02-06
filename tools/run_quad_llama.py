@@ -76,10 +76,14 @@ def main():
     )
     results = all_results['results']
 
-    metric_vals = {task: round(result.get('acc_norm,none', result['acc,none']), 4) for task, result in results.items()}
+    args.logger.info("\n{}".format(lm_eval_utils.make_table(all_results)))
+    metric_vals = {
+        task: round(result.get('acc_norm,none', result['acc,none']), 4) \
+            for task, result in results.items() \
+                if any(key in result for key in ['acc_norm,none', 'acc,none'])
+    }
     metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
     args.logger.info("\n{}".format(metric_vals))
-    args.logger.info("\n{}".format(lm_eval_utils.make_table(all_results)))
 
     os.makedirs(args.save_path, exist_ok=True)
     with open(os.path.join(args.save_path, f"{args.save_name}.txt"), "w") as f:
