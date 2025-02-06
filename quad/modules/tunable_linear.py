@@ -25,9 +25,12 @@ class QuantLinearFn(Function):
         x, x_shape = quad.ops.flatten_last_dim_and_return_shape(x)
         weight = quad.ops.sym_dequant_weight(qweight, weight_scales)
         qweight_f = quad.ops.sym_dequant_weight(qweight, torch.ones_like(weight_scales))
-        grad_x = (grad_y @ weight).view(*x_shape, -1)
-        grad_weight = (x.T @ grad_y).T
-        grad_scale = (grad_weight * qweight_f).sum(dim=1, keepdim=True)
+        grad_x = grad_scale = None
+        if ctx.needs_input_grad[0]:
+            grad_x = (grad_y @ weight).view(*x_shape, -1)
+        if ctx.needs_input_grad[1]:
+            grad_weight = (x.T @ grad_y).T
+            grad_scale = (grad_weight * qweight_f).sum(dim=1, keepdim=True)
         return grad_x, grad_scale, None
 
 

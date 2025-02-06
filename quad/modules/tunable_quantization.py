@@ -34,6 +34,8 @@ class QuantFn(Function):
     
     @staticmethod
     def backward(ctx, grad_x):
+        if not ctx.needs_input_grad[0]:
+            grad_x = None
         return grad_x, None
 
 
