@@ -4,6 +4,7 @@ import torch.nn as nn
 import functools
 import transformers
 import tqdm, math
+import numpy as np
 from transformers.models.llama.modeling_llama import LlamaForCausalLM, LlamaRMSNorm
 from transformers.models.opt.modeling_opt import OPTForCausalLM
 
@@ -39,7 +40,6 @@ def get_named_layernorm(layer, model_type):
     else:
         return {name: m for name, m in layer.named_modules() \
             if isinstance(m, (nn.LayerNorm, module_utils.RMSN))}
-
 
 @torch.no_grad()
 def calib_model(model, args):
@@ -94,20 +94,43 @@ def calib_model(model, args):
         named_linears = get_named_linear(layer, model_type)
 
         # firstly, get input features of all linear layers
-        def cache_input_hook(m, x, y, name, layer, feat_dict):
+        def cache_input_hook(m, x, y, name, layer, block_type, feat_dict):
             x: torch.Tensor = x[0]
-            x = x.view(-1, hidden_dim).abs().max(dim=0).values
-            if feat_dict[layer] is None:
-                feat_dict[layer] = x
+            x = x.view(-1, x.shape[-1])
+            if layer in [8, 16, 24]:
+                if layer == 16 and block_type == "attn":
+                    print("x.shape[-1]: {}".format(x.shape[-1]))
+                if feat_dict[(layer, block_type)] is None:
+                    feat_dict[(layer, block_type)] = x.cpu().float().numpy()
+                else:
+                    feat_dict[(layer, block_type)] = np.concatenate(
+                        (feat_dict[(layer, block_type)], x.cpu().float().numpy()),
+                        axis=0
+                    )
+            x = x.to(torch.float64)
+            x = (x.T @ x).detach().cpu()
+            if feat_dict["x"] is None:
+                feat_dict["x"] = x
+                feat_dict["cnt"] = 1
             else:
-                feat_dict[layer] = torch.max(torch.stack(feat_dict["x"], x), dim=0)
+                cnt = feat_dict["cnt"]
+                feat_dict["x"] = cnt * feat_dict["x"] / (cnt + 1) + x / cnt
+                feat_dict["cnt"] = cnt + 1
+                
+
         handles = []
         for name, linear in named_linears.items():
             assert isinstance(linear, nn.Linear)
-            if "down_proj" in name:
+            if "q_proj" in name:
                 handles.append(
                     named_linears[name].register_forward_hook(
-                        functools.partial(cache_input_hook, name=name, layer=i, feat_dict=feat_dict)
+                        functools.partial(cache_input_hook, name=name, layer=i, block_type="attn", feat_dict=feat_dict)
+                    )
+                )
+            if "up_proj" in name:
+                handles.append(
+                    named_linears[name].register_forward_hook(
+                        functools.partial(cache_input_hook, name=name, layer=i, block_type="ffn", feat_dict=feat_dict)
                     )
                 )
         inps = inps.to(next(layer.parameters()).device)  # in case multi-gpu
@@ -121,10 +144,22 @@ def calib_model(model, args):
         gc.collect()
         torch.cuda.empty_cache()
 
-    
-    for key, x in feat_dict.items():
-        x = torch.sort(x, descending=True).values
-        print(f"name = {name}")
-        print("values[:32] = {}".format(x[:32].tolist()))
-        print("values[-32:] = {}".format(x[-32:].tolist()))
-        print("values[::64] = {}".format(x.tolist()[::64]))
+    assert feat_dict["x"] is not None
+    x = feat_dict["x"]
+    _, S, _ = torch.svd(x)
+    results = {
+        "singular_values": S.tolist(),
+    }
+    for layer in [8, 16, 24]:
+        for block_type in ["attn", "ffn"]:
+            acts: np.ndarray = feat_dict[(layer, block_type)]
+            acts_max = acts.max(axis=0)
+            acts_99p = np.percentile(acts, q=99, axis=0)
+            acts_75p = np.percentile(acts, q=75, axis=0)
+            acts_25p = np.percentile(acts, q=25, axis=0)
+            acts_1p = np.percentile(acts, q=1, axis=0)
+            acts_min = acts.min(axis=0)
+            results[f"{block_type}_layer_{layer}"] = (
+                acts_max, acts_99p, acts_75p, acts_25p, acts_1p, acts_min
+            )
+    return results
