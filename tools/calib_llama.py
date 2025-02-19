@@ -26,12 +26,12 @@ def main():
     model = module_utils.get_model(args.model, args.hf_token)
     model.eval()
 
+    module_utils.untie_word_embedding(model)
+    rotation_utils.fuse_layer_norms(model)
     results = calib_utils.calib_model(model, args)
     with open("misc/data/calib_results.pkl", "wb") as f:
         pickle.dump(results, f)
 
-    module_utils.untie_word_embedding(model)
-    rotation_utils.fuse_layer_norms(model)
     pod_utils.decompose_model(model, args)
 
     if args.pod_rank > 0:
