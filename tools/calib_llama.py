@@ -5,14 +5,14 @@ import torch
 import transformers
 from quad.entry.modules import module_utils
 from quad.entry.rotation import (
-    rotation_utils,
     pod_utils,
-    svd_utils,
-    hadamard_utils
 )
 from quad.entry import (
     utils,
+)
+from .utils import (
     calib_utils,
+    rotation_utils
 )
 
 print(os.environ["HF_HOME"])

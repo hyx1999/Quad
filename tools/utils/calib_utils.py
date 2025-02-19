@@ -11,11 +11,11 @@ from transformers.models.opt.modeling_opt import OPTForCausalLM
 from collections import defaultdict
 from fast_hadamard_transform import hadamard_transform
 from typing import List, Tuple, Dict, Union, Optional
-from . import utils
-from .modules import module_utils
-from .quantization import quant_utils
-from .data_utils import get_loaders
-from .rotation.hadamard_utils import random_hadamard_matrix, apply_exact_had_to_linear, is_pow2
+from quad.entry import utils
+from quad.entry.modules import module_utils
+from quad.entry.quantization import quant_utils
+from quad.entry.data_utils import get_loaders
+from quad.entry.rotation.hadamard_utils import random_hadamard_matrix, apply_exact_had_to_linear, is_pow2
 
 def move_embeddings(model, model_type, device):
     embs = module_utils.get_embeddings(model, model_type)
@@ -153,6 +153,8 @@ def calib_model(model, args):
     for layer in [8, 16, 24]:
         for block_type in ["attn", "ffn"]:
             acts: np.ndarray = feat_dict[(layer, block_type)]
+            if acts is None:
+                continue
             acts_max = acts.max(axis=0)
             acts_99p = np.percentile(acts, q=99, axis=0)
             acts_75p = np.percentile(acts, q=75, axis=0)
