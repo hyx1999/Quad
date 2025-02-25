@@ -15,7 +15,7 @@ from quad.quant.modules import module_utils
 from quad.quant.quantization import(
     gptq_utils
 )
-from quad.models.quad_fp16_llama import QuadFp16LlamaConfig, QuadFp16LlamaForCausalLM
+from quad.models.llama.quad_fp16_llama import QuadFp16LlamaConfig, QuadFp16LlamaForCausalLM
 
 # 定义正则表达式模式，包含两个捕获组：一个用于前缀，另一个用于特定的proj类型
 proj_pattern = r'^(.*?)\.(up_proj|gate_proj|down_proj|q_proj|k_proj|v_proj|o_proj)\.weight$'

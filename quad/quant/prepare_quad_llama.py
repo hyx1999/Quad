@@ -16,8 +16,8 @@ from quad.quant.modules import module_utils
 from quad.quant.quantization import(
     gptq_utils
 )
-from quad.models.quad_quantable_llama import QuadQuantableLlamaConfig, QuadQuantableLlamaForCausalLM
-from quad.models.quad_llama import QuadLlamaConfig, QuadLlamaForCausalLM
+from quad.models.llama.quad_quantable_llama import QuadQuantableLlamaConfig, QuadQuantableLlamaForCausalLM
+from quad.models.llama.quad_llama import QuadLlamaConfig, QuadLlamaForCausalLM
 from .utils import pack_i4
 
 # 定义正则表达式模式，包含两个捕获组：一个用于前缀，另一个用于特定的proj类型

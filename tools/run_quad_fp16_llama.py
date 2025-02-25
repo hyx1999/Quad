@@ -10,7 +10,7 @@ from quad.entry import (
     utils,
     data_utils,
 )
-from quad.models.quad_fp16_llama import QuadFp16LlamaConfig, QuadFp16LlamaForCausalLM
+from quad.models.llama.quad_fp16_llama import QuadFp16LlamaConfig, QuadFp16LlamaForCausalLM
 import logging
 
 print(os.environ["HF_HOME"])

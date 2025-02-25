@@ -53,7 +53,7 @@ from transformers import (
 )
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
-from quad.models.quad_tunable_llama import (
+from quad.models.llama.quad_tunable_llama import (
     QuadTunableLlamaConfig,
     QuadTunableLlamaForCausalLM
 )
