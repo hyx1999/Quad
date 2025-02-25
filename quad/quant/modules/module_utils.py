@@ -3,21 +3,21 @@ import typing
 import transformers
 import os
 import logging
-from transformers.models.opt.modeling_opt import OPTForCausalLM, OPTDecoderLayer
 from transformers.models.llama.modeling_llama import LlamaForCausalLM, LlamaDecoderLayer
+from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM, Qwen2DecoderLayer
 from .. import utils
 
-OPT_MODEL = OPTForCausalLM
-OPT_LAYER = OPTDecoderLayer
 LLAMA_MODEL = LlamaForCausalLM
 LLAMA_LAYER = LlamaDecoderLayer
+QWEN2_MODEL = Qwen2ForCausalLM
+QWEN2_LAYER = Qwen2DecoderLayer
 
 
 def model_type_extractor(model):
     if isinstance(model, LLAMA_MODEL):
         return LLAMA_MODEL
-    elif isinstance(model, OPT_MODEL):
-        return OPT_MODEL
+    elif isinstance(model, QWEN2_MODEL):
+        return QWEN2_MODEL
     else:
         raise ValueError(f'Unknown model type {model}')
 
@@ -26,15 +26,15 @@ def skip(*args, **kwargs):
     pass
 
 def get_rope_function_name(model):
-    if isinstance(model, LLAMA_MODEL):
+    if isinstance(model, (LLAMA_MODEL, QWEN2_MODEL)):
         return "apply_rotary_pos_emb"
     raise NotImplementedError
 
 
 def get_layers(model):
-    if isinstance(model, OPT_MODEL):
-        return model.model.decoder.layers
     if isinstance(model, LLAMA_MODEL):
+        return model.model.layers
+    if isinstance(model, QWEN2_MODEL):
         return model.model.layers
     raise NotImplementedError
 
@@ -51,14 +51,14 @@ def get_llama(model_name, hf_token):
     return model
 
 
-
-def get_opt(model_name):
+def get_qwen2(model_name, hf_token):
     torch.nn.init.kaiming_uniform_ = skip
     torch.nn.init.uniform_ = skip
     torch.nn.init.normal_ = skip
-    model = transformers.OPTForCausalLM.from_pretrained(model_name, torch_dtype='auto',
-                                                        low_cpu_mem_usage=True)
-    model.seqlen = model.config.max_position_embeddings
+    model = transformers.Qwen2ForCausalLM.from_pretrained(model_name, torch_dtype='auto',
+                                                          use_auth_token=hf_token,
+                                                          low_cpu_mem_usage=True)
+    model.seqlen = 2048
     logging.info('---> Loading {} Model with seq_len: {}'.format(model_name, model.seqlen))
     return model
 
@@ -68,43 +68,37 @@ def get_model(
 ):
     if 'llama' in model_name.lower():
         return get_llama(model_name, hf_token)
-    elif 'opt' in model_name.lower():
-        return get_opt(model_name)
+    elif 'qwen' in model_name.lower():
+        return get_qwen2(model_name)
     else:
         raise ValueError(f'Unknown model {model_name}')
 
 
 def get_model_type(model):
-    if isinstance(model, OPT_MODEL):
-        model_type = OPT_MODEL
-    elif isinstance(model, LLAMA_MODEL):
+    if isinstance(model, LLAMA_MODEL):
         model_type = LLAMA_MODEL
+    elif isinstance(model, QWEN2_MODEL):
+        model_type = QWEN2_MODEL
     else:
         raise ValueError(f'Unknown model type {model}')
     return model_type
 
 def get_embeddings(model, model_type) -> list[torch.nn.Module]:
-    if model_type == LLAMA_MODEL:
+    if model_type == LLAMA_MODEL or model_type == QWEN2_MODEL:
         return [model.model.embed_tokens]
-    elif model_type == OPT_MODEL:
-        return [model.model.decoder.embed_tokens, model.model.decoder.embed_positions]
     else:
         raise ValueError(f'Unknown model type {model_type}')
 
 
 def get_transformer_layers(model, model_type):
-    if model_type == LLAMA_MODEL:
+    if model_type == LLAMA_MODEL or model_type == QWEN2_MODEL:
         return [layer for layer in model.model.layers]
-    elif model_type == OPT_MODEL:
-        return [layer for layer in model.model.decoder.layers]
     else:
         raise ValueError(f'Unknown model type {model_type}')
 
 
 def get_lm_head(model, model_type):
-    if model_type == LLAMA_MODEL:
-        return model.lm_head
-    elif model_type == OPT_MODEL:
+    if model_type == LLAMA_MODEL or model_type == QWEN2_MODEL:
         return model.lm_head
     else:
         raise ValueError(f'Unknown model type {model_type}')
@@ -114,19 +108,18 @@ def get_pre_head_layernorm(model, model_type):
         pre_head_layernorm = model.model.norm
         assert isinstance(pre_head_layernorm,
                           transformers.models.llama.modeling_llama.LlamaRMSNorm)
-    elif model_type == OPT_MODEL:
-        pre_head_layernorm = model.model.decoder.final_layer_norm
-        assert pre_head_layernorm is not None
+    elif model_type == QWEN2_MODEL:
+        pre_head_layernorm = model.model.norm
+        assert isinstance(pre_head_layernorm,
+                          transformers.models.qwen2.modeling_qwen2.Qwen2RMSNorm)
     else:
         raise ValueError(f'Unknown model type {model_type}')
     return pre_head_layernorm
 
 def get_mlp_bottleneck_size(model):
     model_type = get_model_type(model)
-    if model_type == LLAMA_MODEL:
+    if model_type == LLAMA_MODEL or model_type == QWEN2_MODEL:
         return model.config.intermediate_size
-    elif model_type == OPT_MODEL:
-        return model.config.ffn_dim
     else:
         raise ValueError(f'Unknown model type {model_type}')
 
@@ -198,7 +191,7 @@ def capture_layer_io(model_type, layer, layer_input):
 
     handles = []
 
-    if model_type == LLAMA_MODEL:
+    if model_type == LLAMA_MODEL or model_type == QWEN2_MODEL:
         captured_inputs = {
             'k_proj': [],  # q_proj, v_proj has the same input as k_proj
             'o_proj': [],
@@ -216,26 +209,6 @@ def capture_layer_io(model_type, layer, layer_input):
 
         for name in captured_outputs.keys():
             module = getattr(layer.self_attn, name, None) or getattr(layer.mlp, name, None)
-            handles.append(module.register_forward_hook(hook_factory(name, captured_outputs, False)))
-
-    elif model_type == OPT_MODEL:
-        captured_inputs = {
-            'k_proj': [],  # q_proj, v_proj has the same input as k_proj
-            'out_proj': [],
-            'fc1': [],
-            'fc2': []
-        }
-        captured_outputs = {
-            'v_proj': [],
-        }
-        for name in captured_inputs.keys():
-            # In OPT, fc1 and fc2 are directly contained in OPTDecoderLayer
-            module = getattr(layer.self_attn, name, None) or getattr(layer, name, None)
-            handles.append(module.register_forward_hook(hook_factory(name, captured_inputs, True)))
-
-        for name in captured_outputs.keys():
-            # In OPT, fc1 and fc2 are directly contained in OPTDecoderLayer
-            module = getattr(layer.self_attn, name, None) or getattr(layer, name, None)
             handles.append(module.register_forward_hook(hook_factory(name, captured_outputs, False)))
     else:
         raise ValueError(f'Unknown model type {model_type}')
@@ -268,7 +241,7 @@ def untie_word_embedding(model):
     print("model.config.tie_word_embeddings:", model.config.tie_word_embeddings)
     if model.config.tie_word_embeddings:    
         for emb in embeddings:
-            emb: torch.nn.Embedding
+            emb: torch.nn.Embedding = emb
             emb.weight = torch.nn.Parameter(
                 emb.weight.data.clone(),
                 requires_grad=emb.weight.requires_grad,

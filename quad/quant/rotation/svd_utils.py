@@ -83,12 +83,9 @@ def decompose_attention_output(
     svd_results: dict = None,
 ) -> None:
     # Rotate output matrix of the self-attention layer.
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         fc = layer.self_attn.o_proj
         prefix = f"{layer_idx}.self_attn.o_proj"
-    elif model_type == module_utils.OPT_MODEL:
-        fc = layer.self_attn.out_proj
-        prefix = f"{layer_idx}.self_attn.out_proj"
     else:
         raise ValueError(f"Unknown model type {model_type}")
     assert isinstance(fc, nn.Linear)
@@ -102,15 +99,12 @@ def decompose_mlp_input(
     svd_results: dict = None,
 ):
     # Rotate the MLP input weights.
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         fcs = [layer.mlp.up_proj, layer.mlp.gate_proj]
         prefixes = [
             f"{layer_idx}.mlp.up_proj",
             f"{layer_idx}.mlp.gate_proj",
         ]
-    elif model_type == module_utils.OPT_MODEL:
-        fcs = [layer.fc1]
-        prefixes = [f"{layer_idx}.fc1"]
     else:
         raise ValueError(f"Unknown model type {model_type}")
     for fc, prefix in zip(fcs, prefixes):
@@ -125,12 +119,9 @@ def decompose_mlp_output(
     svd_results: dict = None,
 ):
     # Rotate the MLP output weights and bias.
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         fc = layer.mlp.down_proj
         prefix = f"{layer_idx}.mlp.down_proj"
-    elif model_type == module_utils.OPT_MODEL:
-        fc = layer.fc2
-        prefix = f"{layer_idx}.fc2"
     else:
         raise ValueError(f"Unknown model type {model_type}")
     assert isinstance(fc, nn.Linear)

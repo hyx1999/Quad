@@ -42,10 +42,8 @@ def decompose_attention_inputs(layer, Q, model_type, pod_rank: int) -> None:
 
 def decompose_attention_output(layer, Q, model_type, pod_rank: int) -> None:
     # Rotate output matrix of the self-attention layer.
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         W = layer.self_attn.o_proj
-    elif model_type == module_utils.OPT_MODEL:
-        W = layer.self_attn.out_proj
     else:
         raise ValueError(f'Unknown model type {model_type}')
     assert isinstance(W, nn.Linear)
@@ -63,10 +61,8 @@ def decompose_attention_output(layer, Q, model_type, pod_rank: int) -> None:
 
 def decompose_mlp_input(layer, Q, model_type, pod_rank: int):
     # Rotate the MLP input weights.
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         mlp_inputs = [layer.mlp.up_proj, layer.mlp.gate_proj]
-    elif model_type == module_utils.OPT_MODEL:
-        mlp_inputs = [layer.fc1]
     else:
         raise ValueError(f'Unknown model type {model_type}')
     for W in mlp_inputs:
@@ -82,10 +78,8 @@ def decompose_mlp_input(layer, Q, model_type, pod_rank: int):
     
 def decompose_mlp_output(layer, Q, model_type, pod_rank: int):
     # Rotate the MLP output weights and bias.
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         W = layer.mlp.down_proj
-    elif model_type == module_utils.OPT_MODEL:
-        W = layer.fc2
     else:
         raise ValueError(f'Unknown model type {model_type}')
     assert isinstance(W, nn.Linear)

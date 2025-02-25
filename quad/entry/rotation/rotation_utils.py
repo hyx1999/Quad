@@ -59,22 +59,12 @@ def fuse_layer_norms(model):
     for layer in layers:
         
         # fuse the input layernorms into the linear layers
-        if model_type == module_utils.LLAMA_MODEL:
+        if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
             fuse_ln_linear(layer.post_attention_layernorm, [layer.mlp.up_proj, layer.mlp.gate_proj])    
             fuse_ln_linear(layer.input_layernorm, [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj])
-        elif model_type == module_utils.OPT_MODEL:
-            fuse_ln_linear(layer.self_attn_layer_norm, [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj])
-            fuse_ln_linear(layer.final_layer_norm, [layer.fc1])
         else:
             raise ValueError(f'Unknown model type {model_type}')
-            
-            
-    
-        if model_type == module_utils.OPT_MODEL:
-            bake_mean_into_linear(layer.self_attn.out_proj)
-            bake_mean_into_linear(layer.fc2)
-                    
-    
+
     fuse_ln_linear(module_utils.get_pre_head_layernorm(**kwargs), [module_utils.get_lm_head(**kwargs)])
     
     module_utils.replace_modules(
@@ -144,10 +134,8 @@ def rotate_attention_inputs(layer, Q, model_type) -> None:
 
 def rotate_attention_output(layer, Q, model_type) -> None:
     # Rotate output matrix of the self-attention layer.
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         W = layer.self_attn.o_proj
-    elif model_type == module_utils.OPT_MODEL:
-        W = layer.self_attn.out_proj
     else:
         raise ValueError(f'Unknown model type {model_type}')
 
@@ -163,10 +151,8 @@ def rotate_attention_output(layer, Q, model_type) -> None:
 
 def rotate_mlp_input(layer, Q, model_type):
     # Rotate the MLP input weights.
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         mlp_inputs = [layer.mlp.up_proj, layer.mlp.gate_proj]
-    elif model_type == module_utils.OPT_MODEL:
-        mlp_inputs = [layer.fc1]
     else:
         raise ValueError(f'Unknown model type {model_type}')
     for W in mlp_inputs:
@@ -179,10 +165,8 @@ def rotate_mlp_input(layer, Q, model_type):
     
 def rotate_mlp_output(layer, Q, model_type):
     # Rotate the MLP output weights and bias.
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         W = layer.mlp.down_proj
-    elif model_type == module_utils.OPT_MODEL:
-        W = layer.fc2
     else:
         raise ValueError(f'Unknown model type {model_type}')
     dtype = W.weight.data.dtype
@@ -207,10 +191,8 @@ def rotate_head(model, Q: torch.Tensor) -> None:
 
 def rotate_ov_proj(layer, model_type, head_num, head_dim):
     v_proj = layer.self_attn.v_proj
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         o_proj = layer.self_attn.o_proj
-    elif model_type == module_utils.OPT_MODEL:
-        o_proj = layer.self_attn.out_proj
     else:
         raise ValueError(f'Unknown model type {model_type}')
     apply_exact_had_to_linear(v_proj, had_dim=head_dim, output=True)
