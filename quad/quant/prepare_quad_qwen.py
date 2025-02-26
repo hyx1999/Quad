@@ -16,8 +16,8 @@ from quad.quant.modules import module_utils
 from quad.quant.quantization import(
     gptq_utils
 )
-from quad.models.llama.quad_quantable_llama import QuadQuantableLlamaConfig, QuadQuantableLlamaForCausalLM
-from quad.models.llama.quad_llama import QuadLlamaConfig, QuadLlamaForCausalLM
+from quad.models.qwen.quad_quantable_qwen import QuadQuantableQwen2Config, QuadQuantableQwen2ForCausalLM
+from quad.models.qwen.quad_qwen import QuadQwen2Config, QuadQwen2ForCausalLM
 from .utils import pack_i4
 
 # 定义正则表达式模式，包含两个捕获组：一个用于前缀，另一个用于特定的proj类型
@@ -61,7 +61,7 @@ def convert_state_dict(args, state_dict: Dict[str, torch.Tensor], quantizier: Di
     return new_state_dict
 
 def main(args):
-    model = transformers.LlamaForCausalLM.from_pretrained(args.model)
+    model = transformers.Qwen2ForCausalLM.from_pretrained(args.model)
     module_utils.untie_word_embedding(model)
     device = utils.DEV
     model.seqlen = 2048
@@ -69,11 +69,11 @@ def main(args):
     pod_utils.decompose_model(model, args)
     rotation_utils.rotate_model(model, args)
     state_dict = model.state_dict()
-    config: QuadQuantableLlamaConfig = QuadQuantableLlamaConfig.from_pretrained(args.model)
+    config: QuadQuantableQwen2Config = QuadQuantableQwen2Config.from_pretrained(args.model)
     config.tie_word_embeddings = False
     config.pod_rank = args.pod_rank
     with transformers.modeling_utils.no_init_weights():
-        model = QuadQuantableLlamaForCausalLM(config=config)
+        model = QuadQuantableQwen2ForCausalLM(config=config)
         model.seqlen = 2048
     result = model.load_state_dict(state_dict, strict=False)
     print("missing_keys:", result.missing_keys)
@@ -88,7 +88,7 @@ def main(args):
         quantizers = gptq_utils.rtn_fwrd(model, device, args)
     state_dict = model.state_dict()
     state_dict = convert_state_dict(args, state_dict, quantizers)
-    config: QuadLlamaConfig = QuadLlamaConfig.from_pretrained(
+    config: QuadQwen2Config = QuadQwen2Config.from_pretrained(
         args.model, 
         attn_implementation="flash_attention_2",
     )
@@ -98,7 +98,7 @@ def main(args):
     config.quant_mode = args.quant_mode
     torch.set_default_dtype(torch.float16)
     with transformers.modeling_utils.no_init_weights(): 
-        model = QuadLlamaForCausalLM(config=config)
+        model = QuadQwen2ForCausalLM(config=config)
     model.to(utils.DEV)
     result = model.load_state_dict(state_dict, strict=False)
     assert all("had_rem_dim" in key for key in result.missing_keys), result
@@ -108,14 +108,14 @@ def main(args):
     with open(f"{args.save_path}/config.json") as f:
         config = json.load(f)
     config["auto_map"] = {
-        "AutoConfig": "quad_llama.QuadLlamaConfig",
-        "AutoModelForCausalLM": "quad_llama.QuadLlamaForCausalLM"
+        "AutoConfig": "quad_qwen.QuadQwen2Config",
+        "AutoModelForCausalLM": "quad_qwen.QuadQwen2ForCausalLM"
     }
-    config["model_type"] =  "quad_llama"
+    config["model_type"] =  "quad_qwen2"
     with open(f"{args.save_path}/config.json", "w") as f:
         json.dump(config, f, indent=4)
     
-    shutil.copy("quad/models/llama/quad_llama.py", f"{args.save_path}/quad_llama.py")
+    shutil.copy("quad/models/qwen/quad_qwen.py", f"{args.save_path}/quad_qwen.py")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     tokenizer.save_pretrained(args.save_path)
 

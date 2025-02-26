@@ -192,7 +192,7 @@ def parser_gen():
         # default=["openbookqa", "social_iqa", "boolq"],
         default=[
             "piqa", "hellaswag", "arc_easy", "arc_challenge", "winogrande", \
-            "lambada", "openbookqa", "social_iqa", "boolq", "wikitext"
+            "lambada", "openbookqa", "social_iqa", "boolq",
         ]
     )
     parser.add_argument('--lm_eval_batch_size', type=int, default=128, help='Batch size for evaluating with lm eval harness.')
@@ -211,6 +211,11 @@ def parser_gen():
 
     parser.add_argument("--disable_online_hadmard", action="store_true")
 
+    # QLoRA
+    parser.add_argument("--qlora_path", type=str, default=None)
+    
+    # QuantMode
+    parser.add_argument("--quad_quant_mode", type=str, default=None)
 
     args = parser.parse_args()
     if args.lm_eval:

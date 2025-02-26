@@ -18,7 +18,7 @@ from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from typing import Optional, Tuple
 from transformers import Cache
 from quad import TensorPack
-from quad.modules import TunableQuantizer, TunableQuantLinear
+from quad.modules import TunableQuantizer, TunableIdentity, TunableQuantLinear
 from tqdm import tqdm
 from enum import Enum
 
@@ -30,7 +30,7 @@ class QuantMode(str, Enum):
     w4a4a8 = "w4a4a8"
 
 class QuadTunableLlamaConfig(LlamaConfig):
-    model_type = "quad_tunable_llama"
+    model_type = "quad_tunable_w4a16_llama"
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -66,7 +66,7 @@ class QuadTunableLlamaAttention(LlamaFlashAttention2, LinearTypeMixin):
         actU, actD = self.get_act_type()
         
         config: QuadTunableLlamaConfig = self.config
-        self.quantizer = TunableQuantizer(
+        self.quantizer = TunableIdentity(
             config.hidden_size,
             config.pod_rank,
             config.input_clip_ratio,
@@ -77,7 +77,7 @@ class QuadTunableLlamaAttention(LlamaFlashAttention2, LinearTypeMixin):
         self.v_proj = QLinearU.from_float(self.v_proj, pod_rank=config.pod_rank)
         self.o_proj_hadamard = quad.modules.OnlineHadamard(self.num_heads)
         self.o_proj = nn.Sequential(
-            TunableQuantizer(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
+            TunableIdentity(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
             QLinearD.from_float(self.o_proj, extra_out=config.pod_rank)
         )
         
@@ -200,7 +200,7 @@ class QuadTunableLlamaMLP(LlamaMLP, LinearTypeMixin):
         actU, actD = self.get_act_type()
 
         config: QuadTunableLlamaConfig = self.config
-        self.quantizer = TunableQuantizer(
+        self.quantizer = TunableIdentity(
             config.hidden_size,
             config.pod_rank,
             config.input_clip_ratio,
@@ -210,7 +210,7 @@ class QuadTunableLlamaMLP(LlamaMLP, LinearTypeMixin):
         self.gate_proj = QLinearU.from_float(self.gate_proj, pod_rank=config.pod_rank)
         self.down_proj = torch.nn.Sequential(
             quad.modules.OnlineHadamard(self.intermediate_size),
-            TunableQuantizer(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
+            TunableIdentity(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
             QLinearD.from_float(self.down_proj, extra_out=config.pod_rank),
         )
 

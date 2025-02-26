@@ -2,7 +2,7 @@ import torch, math
 import fast_hadamard_transform
 # Adapted from https://github.com/Cornell-RelaxML/quip-sharp/blob/main/lib/utils/matmul_had.py
 
-def get_hadK(n, transpose=False):
+def get_hadK(n, transpose=False, head_num=None):
     hadK, K = None, None
     if n % 172 == 0:  # llama-2-7b up
         assert (is_pow2(n // 172))
@@ -32,23 +32,23 @@ def get_hadK(n, transpose=False):
         assert (is_pow2(n // 36))
         K = 36
         hadK = get_had36().T if transpose else get_had36()
-    elif n % 28 == 0:
+    elif n % 28 == 0: #llama-3 up
         assert (is_pow2(n // 28))
         K = 28
         hadK = get_had28().T if transpose else get_had28()
-    elif n % 40 == 0:
+    elif n % 40 == 0 and (head_num is None or head_num == 40):
         assert (is_pow2(n // 40))
         K = 40
         hadK = get_had40().T if transpose else get_had40()
-    elif n % 24 == 0:
+    elif n % 24 == 0 and (head_num is None or head_num == 24):
         assert (is_pow2(n // 24))
         K = 24
         hadK = get_had24().T if transpose else get_had24()
-    elif n % 20 == 0:
+    elif n % 20 == 0 and (head_num is None or head_num == 20):
         assert (is_pow2(n // 20))
         K = 20
         hadK = get_had20().T if transpose else get_had20()
-    elif n % 12 == 0:
+    elif n % 12 == 0 and (head_num is None or head_num == 12):
         assert (is_pow2(n // 12))
         K = 12
         hadK = get_had12().T if transpose else get_had12()
@@ -105,12 +105,11 @@ def matmul_hadU_cuda(X, hadK, K):
     return input.reshape(X.shape)
 
 
-
 def matmul_hadUt_cuda(X, hadK, K):
     return matmul_hadU_cuda(X, hadK, K, transpose=True)
 
 
-def apply_exact_had_to_linear(module, had_dim=-1, output=False):
+def apply_exact_had_to_linear(module, had_dim=-1, head_num=None, output=False):
     assert isinstance(module, torch.nn.Linear)
     in_features, out_features = module.in_features, module.out_features
     
@@ -118,17 +117,24 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False):
         assert is_pow2(had_dim), "Hadamard dimension must be a power of 2!"
     
     W_ = module.weight.data
+    if module.bias is not None:
+        b_ = module.bias.data
+    else:
+        b_ = None
     dtype = W_.dtype
     dev = W_.device
     init_shape = W_.shape
     W_ = W_.float().cuda()
+    if b_ is not None:
+        b_ = b_.float().cuda()
     
     if had_dim == -1:
         if output:
-            had_K, K = get_hadK(out_features)
+            had_K, K = get_hadK(out_features, head_num=head_num)
             W_ = matmul_hadU_cuda(W_.t(), had_K, K).t()
+            assert b_ is None
         if not output:
-            had_K, K = get_hadK(in_features)
+            had_K, K = get_hadK(in_features, head_num=head_num)
             W_ = matmul_hadU_cuda(W_, had_K, K)
     else:
         # Apply Hadamard to the last had_dim chunks of the weights
@@ -139,17 +145,24 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False):
                 W_.reshape(-1, transposed_shape[-1]//had_dim, had_dim), 
                 scale=1/math.sqrt(had_dim)
                 ).reshape(transposed_shape).t()
+            if b_ is not None:
+                b_ = fast_hadamard_transform.hadamard_transform(
+                    b_.reshape(-1, had_dim), scale=1/math.sqrt(had_dim)
+                ).reshape(-1)
         else:
             raise NotImplementedError("Not implemented (or tested) yet!")
             n = W_.shape[1]
             W_ = hadamard_transform(W_.reshape(-1, n//had_dim, had_dim), scale=1/math.sqrt(had_dim)).reshape(init_shape)
     module.weight.data = W_.to(device=dev, dtype=dtype)
-
-
+    if b_ is not None:
+        module.bias.data = b_.to(device=dev, dtype=dtype)
 
 def is_pow2(n):
     return (n & (n - 1) == 0) and (n > 0)
 
+
+def get_eye(K: int):
+    return torch.eye(K, dtype=torch.float) * math.sqrt(K)
 
 # hadamard matrices for had12, had36.pal2, had52,will, 
 # # had60.pal, had108.pal, had140.pal, had156.will, had172.will:
@@ -196,7 +209,7 @@ def get_had24():
         [+1, -1, -1, +1, -1, +1, -1, -1, +1, +1, -1, -1, +1, +1, -1, +1, -1, +1, +1, +1, +1, +1, -1, -1],
         [+1, -1, -1, -1, +1, -1, +1, -1, -1, +1, +1, -1, -1, +1, +1, -1, +1, -1, +1, +1, +1, +1, +1, -1],
         [+1, -1, -1, -1, -1, +1, -1, +1, -1, -1, +1, +1, -1, -1, +1, +1, -1, +1, -1, +1, +1, +1, +1, +1],
-    ])
+])
 
 def get_had40():
     return torch.FloatTensor([

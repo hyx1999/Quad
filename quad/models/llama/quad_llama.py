@@ -30,7 +30,7 @@ class QuantMode(str, Enum):
     w4a4a8 = "w4a4a8"
 
 class QuadLlamaConfig(LlamaConfig):
-    model_type = "llama_quad"
+    model_type = "quad_llama"
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

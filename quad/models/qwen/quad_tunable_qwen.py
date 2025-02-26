@@ -4,11 +4,11 @@ import quad.modules
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import LlamaConfig
-from transformers.models.llama.modeling_llama import (
-    LlamaFlashAttention2, 
-    LlamaMLP, 
-    LlamaForCausalLM, 
+from transformers import Qwen2Config
+from transformers.models.qwen2.modeling_qwen2 import (
+    Qwen2FlashAttention2, 
+    Qwen2MLP, 
+    Qwen2ForCausalLM, 
     StaticCache,
     apply_rotary_pos_emb,
     logger,
@@ -29,8 +29,8 @@ class QuantMode(str, Enum):
     w4a8 = "w4a8"
     w4a4a8 = "w4a4a8"
 
-class QuadTunableLlamaConfig(LlamaConfig):
-    model_type = "quad_tunable_llama"
+class QuadTunableQwen2Config(Qwen2Config):
+    model_type = "quad_tunable_qwen2"
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -57,7 +57,7 @@ class LinearTypeMixin:
         return ActTypeU, ActTypeD        
 
 
-class QuadTunableLlamaAttention(LlamaFlashAttention2, LinearTypeMixin):
+class QuadTunableQwen2Attention(Qwen2FlashAttention2, LinearTypeMixin):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)  
@@ -65,7 +65,7 @@ class QuadTunableLlamaAttention(LlamaFlashAttention2, LinearTypeMixin):
         QLinearU, QLinearD = self.get_linear_type()
         actU, actD = self.get_act_type()
         
-        config: QuadTunableLlamaConfig = self.config
+        config: QuadTunableQwen2Config = self.config
         self.quantizer = TunableQuantizer(
             config.hidden_size,
             config.pod_rank,
@@ -191,15 +191,15 @@ class QuadTunableLlamaAttention(LlamaFlashAttention2, LinearTypeMixin):
         return attn_output, attn_weights, past_key_value
 
 
-class QuadTunableLlamaMLP(LlamaMLP, LinearTypeMixin):
+class QuadTunableQwen2MLP(Qwen2MLP, LinearTypeMixin):
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config)
+        self.config = config
 
         QLinearU, QLinearD = self.get_linear_type()
         actU, actD = self.get_act_type()
 
-        config: QuadTunableLlamaConfig = self.config
         self.quantizer = TunableQuantizer(
             config.hidden_size,
             config.pod_rank,
@@ -219,7 +219,7 @@ class QuadTunableLlamaMLP(LlamaMLP, LinearTypeMixin):
         return super().forward(x)
 
 
-class QuadTunableLlamaForCausalLM(LlamaForCausalLM):
+class QuadTunableQwen2ForCausalLM(Qwen2ForCausalLM):
 
     def __init__(self, config):
         super().__init__(config)
@@ -227,10 +227,10 @@ class QuadTunableLlamaForCausalLM(LlamaForCausalLM):
         self._expand_embedding()
         self._expand_lm_head()
         for layer_idx, layer in tqdm(enumerate(self.model.layers), total=len(self.model.layers), desc="init model..."):
-            layer.self_attn = QuadTunableLlamaAttention(config=config, layer_idx=layer_idx)
+            layer.self_attn = QuadTunableQwen2Attention(config=config, layer_idx=layer_idx)
             layer.input_layernorm = quad.modules.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
             layer.post_attention_layernorm = quad.modules.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-            layer.mlp = QuadTunableLlamaMLP(config=config)
+            layer.mlp = QuadTunableQwen2MLP(config=config)
         self.model.norm = quad.modules.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.cache_dtype = "float16"
 

@@ -3,7 +3,7 @@ import transformers
 import torch
 import fast_hadamard_transform
 from .. import utils
-from ..rotation import hadamard_utils
+import quad.ops.hadamard as hadamard_utils
 
 def get_minq_maxq(bits, sym):
     if sym:

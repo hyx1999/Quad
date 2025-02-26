@@ -2,11 +2,14 @@ import torch
 import typing
 import transformers
 import tqdm, math
+from transformers.models.llama.modeling_llama import LlamaRMSNorm
+from transformers.models.qwen2.modeling_qwen2 import Qwen2RMSNorm
+
 from fast_hadamard_transform import hadamard_transform
 from .. import utils
 from ..modules import module_utils
 from ..quantization import quant_utils
-from .hadamard_utils import random_hadamard_matrix, apply_exact_had_to_linear, is_pow2
+from quad.ops.hadamard import random_hadamard_matrix, apply_exact_had_to_linear, is_pow2
 
 def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: typing.Iterable[torch.nn.Linear]) -> None:
     """
@@ -67,9 +70,17 @@ def fuse_layer_norms(model):
                                 
     fuse_ln_linear(module_utils.get_pre_head_layernorm(**kwargs), [module_utils.get_lm_head(**kwargs)])
     
+    norm_type = None
+    if model_type == module_utils.LLAMA_MODEL:
+        norm_type = LlamaRMSNorm
+    elif model_type == module_utils.QWEN2_MODEL:
+        norm_type = Qwen2RMSNorm
+    else:
+        raise ValueError
+    
     module_utils.replace_modules(
         model,
-        transformers.models.llama.modeling_llama.LlamaRMSNorm if model_type == module_utils.LLAMA_MODEL else torch.nn.LayerNorm,
+        norm_type,
         lambda _: module_utils.RMSN(model.config.hidden_size),
         replace_layers=False,
     )
@@ -195,8 +206,8 @@ def rotate_ov_proj(layer, model_type, head_num, head_dim):
         o_proj = layer.self_attn.o_proj
     else:
         raise ValueError(f'Unknown model type {model_type}')
-    apply_exact_had_to_linear(v_proj, had_dim=head_dim, output=True)
-    apply_exact_had_to_linear(o_proj, had_dim=-1, output=False)
+    apply_exact_had_to_linear(v_proj, had_dim=head_dim, head_num=head_num, output=True)
+    apply_exact_had_to_linear(o_proj, had_dim=-1, head_num=head_num, output=False)
 
 @torch.no_grad()
 def rotate_model(model, args):

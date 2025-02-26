@@ -5,10 +5,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import LlamaConfig
-from transformers.models.llama.modeling_llama import (
-    LlamaAttention, 
-    LlamaMLP, 
-    LlamaForCausalLM, 
+from transformers.models.qwen2.modeling_qwen2 import (
+    Qwen2Attention, 
+    Qwen2MLP, 
+    Qwen2ForCausalLM, 
     StaticCache,
     repeat_kv,
     apply_rotary_pos_emb,
@@ -24,23 +24,23 @@ from quad.modules import QuantLinearFp16, Identity, OnlineHadamard
 ALL_LAYERNORM_LAYERS.append(quad.modules.RMSNorm)
 
 
-class QuadQuantableLlamaConfig(LlamaConfig):
-    model_type = "quad_quantable_llama"
+class QuadQuantableQwen2Config(LlamaConfig):
+    model_type = "quad_quantable_qwen2"
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pod_rank = kwargs.get("pod_rank", 0)
     
 
-class QuadQuantableLlamaAttention(LlamaAttention):
+class QuadQuantableQwen2Attention(Qwen2Attention):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        config: QuadQuantableLlamaConfig = self.config
-        self.q_proj = nn.Linear(self.hidden_size + config.pod_rank, self.num_heads * self.head_dim, bias=config.attention_bias)
-        self.k_proj = nn.Linear(self.hidden_size + config.pod_rank, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
-        self.v_proj = nn.Linear(self.hidden_size + config.pod_rank, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
-        self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size + config.pod_rank, bias=config.attention_bias)
+        config: QuadQuantableQwen2Config = self.config
+        self.q_proj = nn.Linear(self.hidden_size + config.pod_rank, self.num_heads * self.head_dim, bias=True)
+        self.k_proj = nn.Linear(self.hidden_size + config.pod_rank, self.num_key_value_heads * self.head_dim, bias=True)
+        self.v_proj = nn.Linear(self.hidden_size + config.pod_rank, self.num_key_value_heads * self.head_dim, bias=True)
+        self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size + config.pod_rank, bias=False)
         self.o_proj_hadamard = quad.modules.OnlineHadamard(self.num_heads)
         
     def forward(
@@ -134,38 +134,36 @@ class QuadQuantableLlamaAttention(LlamaAttention):
         return attn_output, None, past_key_value
 
 
-class QuadQuantableLlamaMLP(LlamaMLP):
+class QuadQuantableQwen2MLP(Qwen2MLP):
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        config: QuadQuantableLlamaConfig = self.config
-        self.gate_proj = nn.Linear(self.hidden_size + config.pod_rank, self.intermediate_size, bias=config.mlp_bias)
-        self.up_proj = nn.Linear(self.hidden_size + config.pod_rank, self.intermediate_size, bias=config.mlp_bias)
-        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size + config.pod_rank, bias=config.mlp_bias)
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config)
+        self.config: QuadQuantableQwen2Config = config
+        self.gate_proj = nn.Linear(self.hidden_size + config.pod_rank, self.intermediate_size, bias=False)
+        self.up_proj = nn.Linear(self.hidden_size + config.pod_rank, self.intermediate_size, bias=False)
+        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size + config.pod_rank, bias=False)
         self.down_proj_hadamard = quad.modules.OnlineHadamard(self.intermediate_size)
 
     def forward(self, x):
-        if self.config.pretraining_tp > 1:
-            raise ValueError
-        else:
-            down_proj = self.down_proj(
-                self.down_proj_hadamard(
-                    self.act_fn(self.gate_proj(x)) * self.up_proj(x)
-                )
+        down_proj = self.down_proj(
+            self.down_proj_hadamard(
+                self.act_fn(self.gate_proj(x)) * self.up_proj(x)
             )
+        )
         return down_proj
 
-class QuadQuantableLlamaForCausalLM(LlamaForCausalLM):
+
+class QuadQuantableQwen2ForCausalLM(Qwen2ForCausalLM):
 
     def __init__(self, config):
         super().__init__(config)
         self._expand_embedding()
         self._expand_lm_head()
         for layer_idx, layer in enumerate(self.model.layers):
-            layer.self_attn = QuadQuantableLlamaAttention(config=config, layer_idx=layer_idx)
+            layer.self_attn = QuadQuantableQwen2Attention(config=config, layer_idx=layer_idx)
             layer.input_layernorm = quad.modules.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
             layer.post_attention_layernorm = quad.modules.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-            layer.mlp = QuadQuantableLlamaMLP(config=config)
+            layer.mlp = QuadQuantableQwen2MLP(config=config)
         self.model.norm = quad.modules.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def _expand_embedding(self):

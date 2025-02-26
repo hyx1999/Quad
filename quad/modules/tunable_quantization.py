@@ -67,3 +67,27 @@ class TunableQuantizer(torch.nn.Module):  # Quantizier with STE backward pass
         x, outlier_x = self.split(x)
         x = self.quantize(x)
         return quad.TensorPack(x, outlier_x)
+
+
+class TunableIdentity(torch.nn.Module):
+
+    def __init__(self, 
+        hidden_size: int, 
+        pod_rank: int, 
+        input_clip_ratio: float = 1.0,
+        act_dtype: str = "int4",
+    ):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.pod_rank = pod_rank
+        self.input_clip_ratio = input_clip_ratio
+        self.act_dtype = act_dtype
+    
+    def split(self, x: torch.Tensor):
+        outlier_x, x = torch.split(x, [self.pod_rank, self.hidden_size], dim=-1) \
+            if self.pod_rank != 0 else (None, x)
+        return x, outlier_x
+
+    def forward(self, x):
+        x, outlier_x = self.split(x)
+        return quad.TensorPack(x, outlier_x)

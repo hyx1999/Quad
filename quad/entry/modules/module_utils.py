@@ -69,7 +69,7 @@ def get_model(
     if 'llama' in model_name.lower():
         return get_llama(model_name, hf_token)
     elif 'qwen' in model_name.lower():
-        return get_qwen2(model_name)
+        return get_qwen2(model_name, hf_token)
     else:
         raise ValueError(f'Unknown model {model_name}')
 

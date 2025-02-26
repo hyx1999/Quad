@@ -4,8 +4,8 @@ import torch.nn as nn
 import functools
 import transformers
 import tqdm, math
-from transformers.models.llama.modeling_llama import LlamaForCausalLM, LlamaRMSNorm
-from transformers.models.opt.modeling_opt import OPTForCausalLM
+from transformers.models.llama.modeling_llama import LlamaRMSNorm
+from transformers.models.qwen2.modeling_qwen2 import Qwen2RMSNorm
 
 from collections import defaultdict
 from fast_hadamard_transform import hadamard_transform
@@ -14,7 +14,7 @@ from .. import utils
 from ..modules import module_utils
 from ..quantization import quant_utils
 from ..data_utils import get_loaders
-from .hadamard_utils import random_hadamard_matrix, apply_exact_had_to_linear, is_pow2
+from quad.ops.hadamard import random_hadamard_matrix, apply_exact_had_to_linear, is_pow2
 
 
 def decompose_embeddings(model, Q: torch.Tensor, pod_rank: int) -> None:
@@ -110,16 +110,16 @@ def move_embeddings(model, model_type, device):
         emb.to(device)
 
 def move_rotary_embeddings(model, model_type, device):
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         if hasattr(model.model, "rotary_emb"):
             model.model.rotary_emb.to(device)
     else:
         pass
 
 def get_named_layernorm(layer, model_type):
-    if model_type == module_utils.LLAMA_MODEL:
+    if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         return {name: m for name, m in layer.named_modules() \
-            if isinstance(m, (LlamaRMSNorm, module_utils.RMSN))}
+            if isinstance(m, (LlamaRMSNorm, Qwen2RMSNorm, module_utils.RMSN))}
     else:
         return {name: m for name, m in layer.named_modules() \
             if isinstance(m, (nn.LayerNorm, module_utils.RMSN))}
