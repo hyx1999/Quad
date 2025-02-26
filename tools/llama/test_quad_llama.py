@@ -10,16 +10,30 @@ from quad.entry import (
     utils,
     data_utils,
 )
+from quad.models.llama.quad_llama import QuadLlamaConfig, QuadLlamaForCausalLM
+from quad.models.llama.quad_tunable_llama import QuadTunableLlamaConfig, QuadTunableLlamaForCausalLM
+import logging
 
 print(os.environ["HF_HOME"])
 
 # load_dataset("Rowan/hellaswag", trust_remote_code=True)
 
+def get_llama(args):
+    model = QuadTunableLlamaForCausalLM.from_pretrained(
+        args.model, 
+        attn_implementation="flash_attention_2",
+        torch_dtype=torch.float16,
+        trust_remote_code=True,
+    )
+    model.seqlen = 2048
+    logging.info('---> Loading {} Model with seq_len: {}'.format(args.model, model.seqlen))
+    return model
+
 def main():
     args = utils.parser_gen()
     
     transformers.set_seed(args.seed)
-    model = module_utils.get_model(args.model)
+    model = get_llama(args)
     model.eval()
     
     # Evaluating on dataset

@@ -4,13 +4,13 @@ import lm_eval.tasks
 import torch
 import transformers
 from datasets import load_dataset
-from quad.entry.evaluation import eval_utils
+from quad.entry.evaluation import ppl_utils
 from quad.entry.modules import module_utils
 from quad.entry import (
     utils,
     data_utils,
 )
-from quad.models.llama.quad_fp16_llama import QuadFp16LlamaConfig, QuadFp16LlamaForCausalLM
+from quad.models.llama.quad_llama import QuadLlamaConfig, QuadLlamaForCausalLM
 import logging
 
 print(os.environ["HF_HOME"])
@@ -18,8 +18,12 @@ print(os.environ["HF_HOME"])
 # load_dataset("Rowan/hellaswag", trust_remote_code=True)
 
 def get_llama(args):
-    model = QuadFp16LlamaForCausalLM.from_pretrained(
-        args.model, 
+    config: QuadLlamaConfig = QuadLlamaConfig.from_pretrained(args.model)
+    if args.quad_quant_mode is not None:
+        config.quant_mode = args.quad_quant_mode
+    model = QuadLlamaForCausalLM.from_pretrained(
+        args.model,
+        config=config,
         attn_implementation="flash_attention_2",
         torch_dtype=torch.float16,
         trust_remote_code=True,
@@ -45,7 +49,7 @@ def main():
         eval_mode=True
     )
     
-    dataset_ppl = eval_utils.evaluator(model, testloader, utils.DEV, args)
+    dataset_ppl = ppl_utils.eval_ppl(model, testloader, utils.DEV, args)
     args.logger.info("dataset: {}\nppl: {}".format(args.eval_dataset, dataset_ppl))
 
     if not args.lm_eval:
@@ -76,10 +80,14 @@ def main():
     )
     results = all_results['results']
 
-    metric_vals = {task: round(result.get('acc_norm,none', result['acc,none']), 4) for task, result in results.items()}
+    args.logger.info("\n{}".format(lm_eval_utils.make_table(all_results)))
+    metric_vals = {
+        task: round(result.get('acc_norm,none', result['acc,none']), 4) \
+            for task, result in results.items() \
+                if any(key in result for key in ['acc_norm,none', 'acc,none'])
+    }
     metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
     args.logger.info("\n{}".format(metric_vals))
-    args.logger.info("\n{}".format(lm_eval_utils.make_table(all_results)))
 
     os.makedirs(args.save_path, exist_ok=True)
     with open(os.path.join(args.save_path, f"{args.save_name}.txt"), "w") as f:

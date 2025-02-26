@@ -10,8 +10,7 @@ from quad.entry import (
     utils,
     data_utils,
 )
-from quad.models.quad_llama import QuadLlamaConfig, QuadLlamaForCausalLM
-from quad.models.quad_tunable_llama import QuadTunableLlamaConfig, QuadTunableLlamaForCausalLM
+from quad.models.qwen.quad_quantable_qwen import QuadQuantableQwen2Config, QuadQuantableQwen2ForCausalLM
 import logging
 
 print(os.environ["HF_HOME"])
@@ -19,7 +18,7 @@ print(os.environ["HF_HOME"])
 # load_dataset("Rowan/hellaswag", trust_remote_code=True)
 
 def get_llama(args):
-    model = QuadTunableLlamaForCausalLM.from_pretrained(
+    model = QuadQuantableQwen2ForCausalLM.from_pretrained(
         args.model, 
         attn_implementation="flash_attention_2",
         torch_dtype=torch.float16,
