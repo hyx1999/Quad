@@ -54,11 +54,11 @@ def get_hadK(n, transpose=False, head_num=None):
         hadK = get_had12().T if transpose else get_had12()
     else:
         # assert (is_pow2(n))
-        assert head_num is None
         K = n
         while K % 2 == 0:
             K //= 2
-        hadK = get_eye(K)
+        hadK = get_eye(K) if K > 1 else None
+        assert K == 1 or head_num is None
 
     return hadK, K
 
