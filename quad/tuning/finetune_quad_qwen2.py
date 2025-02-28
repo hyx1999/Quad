@@ -53,7 +53,7 @@ from transformers import (
 )
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
-from quad.models.qwen.quad_tunable_qwen import (
+from quad.models.qwen2.quad_tunable_qwen2 import (
     QuadTunableQwen2Config,
     QuadTunableQwen2ForCausalLM
 )

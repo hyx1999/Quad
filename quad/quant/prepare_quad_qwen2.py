@@ -16,8 +16,8 @@ from quad.quant.modules import module_utils
 from quad.quant.quantization import(
     gptq_utils
 )
-from quad.models.qwen.quad_quantable_qwen import QuadQuantableQwen2Config, QuadQuantableQwen2ForCausalLM
-from quad.models.qwen.quad_qwen import QuadQwen2Config, QuadQwen2ForCausalLM
+from quad.models.qwen2.quad_quantable_qwen2 import QuadQuantableQwen2Config, QuadQuantableQwen2ForCausalLM
+from quad.models.qwen2.quad_qwen2 import QuadQwen2Config, QuadQwen2ForCausalLM
 from .utils import pack_i4
 
 # 定义正则表达式模式，包含两个捕获组：一个用于前缀，另一个用于特定的proj类型
@@ -108,14 +108,14 @@ def main(args):
     with open(f"{args.save_path}/config.json") as f:
         config = json.load(f)
     config["auto_map"] = {
-        "AutoConfig": "quad_qwen.QuadQwen2Config",
-        "AutoModelForCausalLM": "quad_qwen.QuadQwen2ForCausalLM"
+        "AutoConfig": "quad_qwen2.QuadQwen2Config",
+        "AutoModelForCausalLM": "quad_qwen2.QuadQwen2ForCausalLM"
     }
     config["model_type"] =  "quad_qwen2"
     with open(f"{args.save_path}/config.json", "w") as f:
         json.dump(config, f, indent=4)
     
-    shutil.copy("quad/models/qwen/quad_qwen.py", f"{args.save_path}/quad_qwen.py")
+    shutil.copy("quad/models/qwen2/quad_qwen2.py", f"{args.save_path}/quad_qwen2.py")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     tokenizer.save_pretrained(args.save_path)
 

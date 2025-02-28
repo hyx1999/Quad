@@ -10,7 +10,7 @@ from quad.entry import (
     utils,
     data_utils,
 )
-from quad.models.qwen.quad_quantable_qwen import QuadQuantableQwen2Config, QuadQuantableQwen2ForCausalLM
+from quad.models.qwen2.quad_qwen2 import QuadQwen2Config, QuadQwen2ForCausalLM
 import logging
 
 print(os.environ["HF_HOME"])
@@ -18,8 +18,12 @@ print(os.environ["HF_HOME"])
 # load_dataset("Rowan/hellaswag", trust_remote_code=True)
 
 def get_llama(args):
-    model = QuadQuantableQwen2ForCausalLM.from_pretrained(
+    config: QuadQwen2Config = QuadQwen2Config.from_pretrained(args.model)
+    if args.quad_quant_mode is not None:
+        config.quant_mode = args.quad_quant_mode
+    model = QuadQwen2ForCausalLM.from_pretrained(
         args.model, 
+        config=config,
         attn_implementation="flash_attention_2",
         torch_dtype=torch.float16,
         trust_remote_code=True,
@@ -76,10 +80,14 @@ def main():
     )
     results = all_results['results']
 
-    metric_vals = {task: round(result.get('acc_norm,none', result['acc,none']), 4) for task, result in results.items()}
+    args.logger.info("\n{}".format(lm_eval_utils.make_table(all_results)))
+    metric_vals = {
+        task: round(result.get('acc_norm,none', result['acc,none']), 4) \
+            for task, result in results.items() \
+                if any(key in result for key in ['acc_norm,none', 'acc,none'])
+    }
     metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
     args.logger.info("\n{}".format(metric_vals))
-    args.logger.info("\n{}".format(lm_eval_utils.make_table(all_results)))
 
     os.makedirs(args.save_path, exist_ok=True)
     with open(os.path.join(args.save_path, f"{args.save_name}.txt"), "w") as f:
