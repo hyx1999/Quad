@@ -5,6 +5,7 @@ import functools
 import os
 import pickle
 import logging
+from accelerate import Accelerator
 
 template_with_input = '''### Instruction:
 {instruction}
@@ -198,13 +199,20 @@ def load_wizardlm(dataset, tokenizer, max_tokens=1024):
 
 
 # Function to select the appropriate loader based on dataset name
-def process_domain_data(name, raw_datasets, tokenizer):
+def process_domain_data(args, raw_datasets, tokenizer, accelerator):
+    fn_name = None
+    if "math" in args.dataset_name.lower():
+        fn_name = "meta-math"
+    elif "code" in args.dataset_name.lower():
+        fn_name = "codefeedback"
+    else:
+        raise ValueError
     fn_dict = {
         "meta-math": load_meta_math,
         "wizardlm": load_wizardlm,
         "codefeedback": load_codefeedback,
     }
-    train_set, eval_set = fn_dict[name](raw_datasets["train"], tokenizer)
+    train_set, eval_set = fn_dict[fn_name](raw_datasets["train"], tokenizer)
     lm_datasets = DatasetDict({
         "train": train_set,
         "validation": eval_set,
