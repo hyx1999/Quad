@@ -32,6 +32,7 @@ def main():
         eval_mode=True
     )
     
+    dataset_ppl = None
     dataset_ppl = ppl_utils.eval_ppl(model, testloader, utils.DEV, args)
     args.logger.info("dataset: {}\nppl: {}".format(args.eval_dataset, dataset_ppl))
 
@@ -49,7 +50,6 @@ def main():
         utils.distribute_model(model)
     else:
         model.to(utils.DEV)
-    
     tokenizer = transformers.AutoTokenizer.from_pretrained(args.model, use_fast=False, use_auth_token=args.hf_token)
     hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=args.lm_eval_batch_size)
     task_manager = TaskManager()
@@ -60,13 +60,19 @@ def main():
         tasks=task_names, 
         batch_size=args.lm_eval_batch_size,
         task_manager=task_manager,
+        confirm_run_unsafe_code=True
     )
     results = all_results['results']
 
-    metric_vals = {task: round(result.get('acc_norm,none', result['acc,none']), 4) for task, result in results.items()}
-    metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
-    args.logger.info("\n{}".format(metric_vals))
     args.logger.info("\n{}".format(lm_eval_utils.make_table(all_results)))
+    metric_vals = {
+        task: round(result.get('acc_norm,none', result['acc,none']), 4) \
+            for task, result in results.items() \
+                if any(key in result for key in ['acc_norm,none', 'acc,none'])
+    }
+    if len(metric_vals.values()) > 0:
+        metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
+    args.logger.info("\n{}".format(metric_vals))
 
     os.makedirs(args.save_path, exist_ok=True)
     with open(os.path.join(args.save_path, f"{args.save_name}.txt"), "w") as f:

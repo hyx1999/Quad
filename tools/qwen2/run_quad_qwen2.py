@@ -77,6 +77,7 @@ def main():
         tasks=task_names, 
         batch_size=args.lm_eval_batch_size,
         task_manager=task_manager,
+        confirm_run_unsafe_code=True
     )
     results = all_results['results']
 
@@ -86,7 +87,8 @@ def main():
             for task, result in results.items() \
                 if any(key in result for key in ['acc_norm,none', 'acc,none'])
     }
-    metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
+    if len(metric_vals.values()) > 0:
+        metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
     args.logger.info("\n{}".format(metric_vals))
 
     os.makedirs(args.save_path, exist_ok=True)
