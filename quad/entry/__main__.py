@@ -79,7 +79,6 @@ def main():
     
     dataset_ppl = ppl_utils.eval_ppl(model, testloader, utils.DEV, args)
     args.logger.info("dataset: {}\nppl: {}".format(args.eval_dataset, dataset_ppl))
-    exit(0)
 
     if args.w_bits < 16:
         save_dict = {}
@@ -91,7 +90,7 @@ def main():
             model.load_state_dict(save_dict["model"])
             
         elif not args.w_rtn: # GPTQ Weight Quantization
-            assert "llama" in args.model.lower(), "Only llama is supported for GPTQ!"
+            # assert "llama" in args.model.lower(), "Only llama is supported for GPTQ!"
             
             trainloader = data_utils.get_loaders(
                 args.cal_dataset, nsamples=args.nsamples,
