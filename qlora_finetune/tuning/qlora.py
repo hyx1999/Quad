@@ -54,7 +54,7 @@ from transformers import (
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 from quad.tuning.utils.scheduler import get_cosine_schedule_with_warmup
-from quad.tuning.utils.data_utils import process_sft_data
+from quad.tuning.utils.data_utils import process_sft_data, process_domain_data
 from transformers import BitsAndBytesConfig
 from peft import LoraConfig, prepare_model_for_kbit_training, get_peft_model
 
@@ -363,7 +363,7 @@ def main():
     lora_config = LoraConfig(
         r=32,
         lora_alpha=16,
-        target_modules=["q_proj", "k_proj", "v_proj"],
+        target_modules=["q_proj", "k_proj", "v_proj", "up_proj", "gate_proj"],
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM"
@@ -376,9 +376,13 @@ def main():
     if len(tokenizer) > embedding_size:
         model.resize_token_embeddings(len(tokenizer))
 
-    if args.dataset_name is not None:
+    assert args.dataset_name is not None
+    if "alpaca" in args.dataset_name.lower():
         raw_datasets = load_dataset("json", data_files=args.dataset_name)
         lm_datasets = process_sft_data(args, raw_datasets, tokenizer, accelerator)
+    elif any(name in args.dataset_name.lower() for name in ["code", "math"]):
+        raw_datasets = load_dataset("json", data_files=args.dataset_name)
+        lm_datasets = process_domain_data(args, raw_datasets, tokenizer, accelerator)        
     else:
         raise ValueError
 
