@@ -24,10 +24,6 @@ from enum import Enum
 
 ALL_LAYERNORM_LAYERS.append(quad.modules.RMSNorm)
 
-class QuantMode(str, Enum):
-    w4a4 = "w4a4"
-    w4a8 = "w4a8"
-    w4a4a8 = "w4a4a8"
 
 class QuadTunableLlamaConfig(LlamaConfig):
     model_type = "quad_tunable_w4a16_llama"
@@ -35,8 +31,8 @@ class QuadTunableLlamaConfig(LlamaConfig):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pod_rank = kwargs.get("pod_rank", 0)
-        self.input_clip_ratio = kwargs.get("input_clip_ratio", 1.0)
-        self.quant_mode = kwargs.get("quant_mode", QuantMode.w4a4a8)
+        self.input_clip_ratio = 1.0
+        self.quant_mode = "w416"
 
 
 class LinearTypeMixin:
@@ -45,16 +41,7 @@ class LinearTypeMixin:
         return TunableQuantLinear, TunableQuantLinear
     
     def get_act_type(self):
-        if self.config.quant_mode == QuantMode.w4a4:
-            ActTypeU = "int4"
-            ActTypeD = "int4"
-        elif self.config.quant_mode == QuantMode.w4a8:
-            ActTypeU = "int8"
-            ActTypeD = "int8"
-        else:
-            ActTypeU = "int4"
-            ActTypeD = "int8"
-        return ActTypeU, ActTypeD        
+        return None, None
 
 
 class QuadTunableLlamaAttention(LlamaFlashAttention2, LinearTypeMixin):
