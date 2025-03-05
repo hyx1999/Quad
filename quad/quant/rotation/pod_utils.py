@@ -129,7 +129,7 @@ def get_projection_matrix(model, args):
     model_type = module_utils.model_type_extractor(model)
     layers = module_utils.get_layers(model)
 
-    samples = get_loaders(name="c4", model=args.model, nsamples=32, seqlen=512)
+    samples = get_loaders(name=args.cal_dataset, model=args.model, nsamples=32, seqlen=512)
     samples = torch.cat([x[0] for x in samples], dim=0)
 
     inps = []
