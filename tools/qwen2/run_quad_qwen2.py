@@ -77,7 +77,8 @@ def main():
         tasks=task_names, 
         batch_size=args.lm_eval_batch_size,
         task_manager=task_manager,
-        confirm_run_unsafe_code=True
+        confirm_run_unsafe_code=True,
+        gen_kwargs="do_sample=True, top_p=0.7, temperature=0.7"
     )
     results = all_results['results']
 
@@ -96,6 +97,7 @@ def main():
         print(f"ppl: {dataset_ppl}", file=f)
         print(metric_vals, file=f)
         print(lm_eval_utils.make_table(all_results), file=f)
+        print(all_results, file=f)
 
 if __name__ == '__main__':
     main()
