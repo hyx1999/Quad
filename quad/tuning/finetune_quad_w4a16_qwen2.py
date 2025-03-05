@@ -53,9 +53,9 @@ from transformers import (
 )
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
-from quad.models.llama.quad_tunable_llama import (
-    QuadTunableLlamaConfig,
-    QuadTunableLlamaForCausalLM
+from quad.models.qwen2.quad_tunable_w4a16_qwen2 import (
+    QuadTunableQwen2Config,
+    QuadTunableQwen2ForCausalLM
 )
 from quad.tuning.utils.scheduler import get_cosine_schedule_with_warmup
 from quad.tuning.utils.data_utils import process_sft_data, process_domain_data
@@ -315,13 +315,13 @@ def main():
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
     if args.config_name:
-        config = QuadTunableLlamaConfig.from_pretrained(
+        config = QuadTunableQwen2Config.from_pretrained(
             args.config_name,
             trust_remote_code=args.trust_remote_code,
             attn_implementation="flash_attention_2"
         )
     elif args.model_name_or_path:
-        config = QuadTunableLlamaConfig.from_pretrained(
+        config = QuadTunableQwen2Config.from_pretrained(
             args.model_name_or_path,
             trust_remote_code=args.trust_remote_code,
             attn_implementation="flash_attention_2",
@@ -346,7 +346,7 @@ def main():
     tokenizer.padding_side = "left"  # Allow batched inference
 
     if args.model_name_or_path:
-        model = QuadTunableLlamaForCausalLM.from_pretrained(
+        model = QuadTunableQwen2ForCausalLM.from_pretrained(
             args.model_name_or_path,
             from_tf=bool(".ckpt" in args.model_name_or_path),
             config=config,
