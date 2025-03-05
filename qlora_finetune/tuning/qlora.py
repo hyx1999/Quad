@@ -406,9 +406,6 @@ def main():
 
     # Optimizer
     # Split weights in two groups, one with weight decay and the other not.
-    for n, p in model.named_parameters():
-        if not any(key in n for key in ["w_outlier", "weight_scale"]):
-            p.requires_grad = False
     params_name = [n for n, p in model.named_parameters() if p.requires_grad]
     print(params_name)
     no_decay = ["bias", "layernorm.weight"]
