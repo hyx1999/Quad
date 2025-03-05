@@ -46,18 +46,18 @@ def main():
     model = get_llama(args)
     model.eval()
     
-    # Evaluating on dataset
-    testloader = data_utils.get_loaders(
-        args.eval_dataset,
-        seed=args.seed,
-        model=args.model,
-        seqlen=model.seqlen,
-        hf_token=args.hf_token,
-        eval_mode=True
-    )
-    
-    dataset_ppl = ppl_utils.eval_ppl(model, testloader, utils.DEV, args)
-    args.logger.info("dataset: {}\nppl: {}".format(args.eval_dataset, dataset_ppl))
+    # # Evaluating on dataset
+    # testloader = data_utils.get_loaders(
+    #     args.eval_dataset,
+    #     seed=args.seed,
+    #     model=args.model,
+    #     seqlen=model.seqlen,
+    #     hf_token=args.hf_token,
+    #     eval_mode=True
+    # )
+    # dataset_ppl = ppl_utils.eval_ppl(model, testloader, utils.DEV, args)
+    # args.logger.info("dataset: {}\nppl: {}".format(args.eval_dataset, dataset_ppl))
+    dataset_ppl = None
 
     if not args.lm_eval:
         return
@@ -87,10 +87,15 @@ def main():
     )
     results = all_results['results']
 
-    metric_vals = {task: round(result.get('acc_norm,none', result['acc,none']), 4) for task, result in results.items()}
-    metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
-    args.logger.info("\n{}".format(metric_vals))
     args.logger.info("\n{}".format(lm_eval_utils.make_table(all_results)))
+    metric_vals = {
+        task: round(result.get('acc_norm,none', result['acc,none']), 4) \
+            for task, result in results.items() \
+                if any(key in result for key in ['acc_norm,none', 'acc,none'])
+    }
+    if len(metric_vals.values()) > 0:
+        metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
+    args.logger.info("\n{}".format(metric_vals))
 
     os.makedirs(args.save_path, exist_ok=True)
     with open(os.path.join(args.save_path, f"{args.save_name}.txt"), "w") as f:
