@@ -30,14 +30,3 @@ def add_wrapper_after_function_call_in_method(module, method_name, function_name
     new_method = copy_func_with_new_globals(original_method, globals=method_globals)
     setattr(module, method_name, new_method.__get__(module))
     return wrapper
-
-def add_lora_in_linear(module):
-    def get_fwd_fn():
-        def lora_forward(self, input: Tensor) -> Tensor:
-            lora_A = self.adapters["lora_A"]
-            lora_B = self.adapters["lora_B"]
-            return lora_A(lora_B(input))
-        return lora_forward
-    if hasattr(module, "adapters"):
-        fwd_fn = get_fwd_fn()
-        setattr(module, "lora_forward", MethodType(fwd_fn, module))

@@ -275,9 +275,14 @@ def rtn_fwrd(model, dev, args):
     for i in tqdm.tqdm(range(len(layers)), desc="(RtN Quant.) Layers"):
         layer = layers[i].to(dev)
 
-        subset = quant_utils.find_qlayers(layer,
+        full = quant_utils.find_qlayers(layer,
                                             layers=[torch.nn.Linear])
-
+        names = \
+            ['self_attn.k_proj', 'self_attn.v_proj', 'self_attn.q_proj'] + \
+            ['self_attn.o_proj'] + \
+            ['mlp.up_proj', 'mlp.gate_proj'] + \
+            ['mlp.down_proj']
+        subset = {n: full[n] for n in names}
         for name in subset:
             layer_weight_bits = args.w_bits
             if 'lm_head' in name:

@@ -10,7 +10,6 @@ from quad.quant import data_utils, utils
 from quad.quant.rotation import (
     rotation_utils,
     pod_utils,
-    svd_utils,
 )
 from quad.quant.modules import module_utils
 from quad.quant.quantization import(

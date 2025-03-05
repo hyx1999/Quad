@@ -31,14 +31,9 @@ class TensorPack:
         self,
         x: torch.Tensor | QTensor,
         outlier_x: Optional[torch.Tensor] = None,
-        lora_x_list: Optional[List[torch.Tensor]] = None,
     ):
         self.x = x
         self.outlier_x = outlier_x
-        self.lora_x_list = lora_x_list
-
-    def get_x_lora(self, lora_idx: str):
-        return self.lora_x_list[lora_idx]
 
     @property
     def device(self):

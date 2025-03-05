@@ -174,7 +174,7 @@ def rotate_mlp_input(layer, Q, model_type):
             lora_B_ = W.adapters["lora_B"].weight.data.to(device=utils.DEV, dtype=torch.float64)
             W.adapters["lora_B"].weight.data = torch.matmul(lora_B_, Q).to(device="cpu", dtype=dtype)
     
-def rotate_mlp_output(layer, Q, model_type):
+def rotate_mlp_output(layer, Q, model_type, disable_online: bool = False):
     # Rotate the MLP output weights and bias.
     if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         W = layer.mlp.down_proj
@@ -189,8 +189,9 @@ def rotate_mlp_output(layer, Q, model_type):
     if hasattr(W, "adapters"):
         lora_A_ = W.adapters["lora_A"].weight.data.to(device=utils.DEV, dtype=torch.float64)
         W.adapters["lora_A"].weight.data = torch.matmul(Q.T, lora_A_).to(device="cpu", dtype=dtype)
-    #apply exact (inverse) hadamard on the weights of mlp output
-    apply_exact_had_to_linear(W, had_dim=-1, output=False)
+    if not disable_online:
+        #apply exact (inverse) hadamard on the weights of mlp output
+        apply_exact_had_to_linear(W, had_dim=-1, output=False)
 
 
 def rotate_head(model, Q: torch.Tensor) -> None:
@@ -200,17 +201,20 @@ def rotate_head(model, Q: torch.Tensor) -> None:
     W_ = W.weight.data.to(device=utils.DEV, dtype=torch.float64)
     W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
 
-def rotate_ov_proj(layer, model_type, head_num, head_dim):
+def rotate_ov_proj(layer, model_type, head_num, head_dim, disable_online: bool = False):
     v_proj = layer.self_attn.v_proj
     if model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL:
         o_proj = layer.self_attn.o_proj
     else:
         raise ValueError(f'Unknown model type {model_type}')
-    apply_exact_had_to_linear(v_proj, had_dim=head_dim, head_num=head_num, output=True)
-    apply_exact_had_to_linear(o_proj, had_dim=-1, head_num=head_num, output=False)
+    if not disable_online:
+        apply_exact_had_to_linear(v_proj, had_dim=head_dim, head_num=head_num, output=True)
+        apply_exact_had_to_linear(o_proj, had_dim=-1, head_num=head_num, output=False)
 
 @torch.no_grad()
 def rotate_model(model, args):
+    if not hasattr(args, "disable_online"):
+        args.disable_online = False
     Q = get_orthogonal_matrix(model.config.hidden_size, args.pod_rank, args.rotate_mode)
     config = model.config
     num_heads = config.num_attention_heads
@@ -227,8 +231,8 @@ def rotate_model(model, args):
         rotate_attention_inputs(layers[idx], Q, model_type)
         rotate_attention_output(layers[idx], Q, model_type)
         rotate_mlp_input(layers[idx], Q, model_type)
-        rotate_mlp_output(layers[idx], Q, model_type)
-        rotate_ov_proj(layers[idx], model_type, num_heads, head_dim)
+        rotate_mlp_output(layers[idx], Q, model_type, disable_online=args.disable_online)
+        rotate_ov_proj(layers[idx], model_type, num_heads, head_dim, disable_online=args.disable_online)
 
 
 class QKRotationWrapper(torch.nn.Module):

@@ -8,35 +8,18 @@ from typing import Optional
 
 class Identity(torch.nn.Module):
 
-    def __init__(
-        self, hidden_size: int, pod_rank: int, svd_rank: int = 0, num_adapters: int = 1
-    ):
+    def __init__(self, hidden_size: int, pod_rank: int):
         super().__init__()
+        self.hidden_size = hidden_size
         self.pod_rank = pod_rank
-        self.svd_rank = svd_rank
-        self.num_adapters = num_adapters
-        if svd_rank > 0:
-            self.lora_B = Parameter(
-                torch.empty(
-                    (svd_rank * num_adapters, hidden_size + pod_rank),
-                    dtype=torch.float16,
-                )
-            )
-        else:
-            self.register_parameter("lora_B", None)
 
     def forward(self, x):
-        if self.lora_B is not None:
-            x_lora = F.linear(x, self.lora_B)
-            x_lora_list = torch.split(x_lora, self.num_adapters, dim=-1)
-        else:
-            x_lora_list = None
         if self.pod_rank == 0:
             outlier_x = None
         else:
             outlier_x = x[..., : self.pod_rank].contiguous()
             x = x[..., self.pod_rank :].contiguous()
-        return quad.TensorPack(x, outlier_x, x_lora_list)
+        return quad.TensorPack(x, outlier_x)
 
 
 class Quantizer(torch.nn.Module):
