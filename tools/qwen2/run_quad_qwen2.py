@@ -78,7 +78,6 @@ def main():
         batch_size=args.lm_eval_batch_size,
         task_manager=task_manager,
         confirm_run_unsafe_code=True,
-        gen_kwargs="do_sample=True, top_p=0.7, temperature=0.7"
     )
     results = all_results['results']
 
