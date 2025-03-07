@@ -84,6 +84,7 @@ def main():
         tasks=task_names, 
         batch_size=args.lm_eval_batch_size,
         task_manager=task_manager,
+        confirm_run_unsafe_code=True
     )
     results = all_results['results']
 
