@@ -115,6 +115,7 @@ class QuadLlamaAttention(LlamaFlashAttention2, LinearTypeMixin):
         else:
             states = QuantFn.apply(states, QuantParams(clip_ratio=self.config.kv_clip_ratio, act_dtype="int4"))
         states = hadamard_transform(states, scale=1 / math.sqrt(states.shape[-1]))
+        return states
 
     def forward(
         self,
