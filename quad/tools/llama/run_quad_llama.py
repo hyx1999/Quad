@@ -21,6 +21,9 @@ def get_llama(args):
     config: QuadLlamaConfig = QuadLlamaConfig.from_pretrained(args.model)
     if args.quad_quant_mode is not None:
         config.quant_mode = args.quad_quant_mode
+    if args.enable_int4_kv:
+        config.enable_int4_kv = True
+        config.kv_clip_ratio = 0.95
     model = QuadLlamaForCausalLM.from_pretrained(
         args.model,
         config=config,

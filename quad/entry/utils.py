@@ -216,6 +216,7 @@ def parser_gen():
     
     # QuantMode
     parser.add_argument("--quad_quant_mode", type=str, default=None)
+    parser.add_argument("--enable_int4_kv", action="store_true")
 
     args = parser.parse_args()
     if args.lm_eval:
