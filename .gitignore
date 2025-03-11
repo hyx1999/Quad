@@ -11,3 +11,5 @@ quad/kernels/quad_cuda.egg-info
 quad/kernels/third_party
 .pkl_memoize_py3
 eval_long_cot
+tilelang/
+out.log
