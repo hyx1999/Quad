@@ -214,3 +214,54 @@ class QuantLinearW4A8(QuantLinearW4A4):
             pod_rank=pod_rank,
         )
         return packed_module
+
+
+class QuantLinearW4A16(QuantLinearW4A4):
+    __constants__ = ["in_features", "out_features"]
+    in_features: int
+    out_features: int
+    weight: torch.Tensor
+    
+    def __init__(self, in_features, out_features, bias = True, device=None, dtype=None, pod_rank: int = 0):
+        super().__init__(in_features, out_features, bias, device, dtype, pod_rank)
+
+    def init_matmul(self):
+        def matmul(A: torch.Tensor, W: nn.Parameter) -> torch.Tensor:
+            y = A @ W.T
+            return y
+        return matmul
+
+    def forward(self, x_pack):
+        x, x_shape = quad.ops.flatten_last_dim_and_return_shape(x_pack.x.quantized_x)
+        weight = quad.ops.sym_dequant_weight(self.weight, self.weight_scales)
+        x_out = self.matmul(x, weight)
+        if self.w_outlier is not None:
+            outlier_x, _ = quad.ops.flatten_last_dim_and_return_shape(x_pack.outlier_x)
+            x_out.addmm_(outlier_x, self.w_outlier.T)
+        if self.bias is not None:
+            x_out.add_(self.bias)
+        return x_out.view(x_shape + (-1,))    
+
+    @staticmethod
+    def from_float(
+        module: torch.nn.Linear,
+        extra_in=0,
+        extra_out=0,
+        pod_rank: int = 0,
+    ):
+        """
+        Generate a new Linear4bit module from a FP16 Linear module.
+        The weight matrix should have the same shape as the weight matrix of the FP16 Linear module and rounded using torch.round()
+        routine. We will convert it to subByte representation and save it in the int_weight buffer.
+        """
+        weight_matrix = module.weight.data
+
+        packed_module = QuantLinearW4A16(
+            module.in_features + extra_in,
+            module.out_features + extra_out,
+            bias=module.bias is not None,
+            dtype=weight_matrix.dtype,
+            device=weight_matrix.device,
+            pod_rank=pod_rank,
+        )
+        return packed_module

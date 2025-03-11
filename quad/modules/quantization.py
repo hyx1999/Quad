@@ -37,8 +37,12 @@ class Quantizer(torch.nn.Module):
         self.act_dtype = act_dtype
         if act_dtype == "int4":
             self.quantize = self.quantize_int4
-        else:
+        elif act_dtype == "int8":
             self.quantize = self.quantize_int8
+        elif act_dtype == "fp16":
+            self.quantize = self.quantize_fp16
+        else:
+            raise ValueError
 
     def split(self, x: torch.Tensor):
         outlier_x, x = torch.split(x, [self.pod_rank, self.hidden_size], dim=-1) \
@@ -60,6 +64,11 @@ class Quantizer(torch.nn.Module):
     def quantize_int8(self, x: torch.Tensor):
         scales_x = self.get_scales(x, 127)
         quantized_x = quad.ops.sym_quant_int8(x, scales_x)
+        return quad.QTensor(quantized_x, scales_x)
+
+    def quantize_fp16(self, x: torch.Tensor):
+        scales_x = None
+        quantized_x = x
         return quad.QTensor(quantized_x, scales_x)
 
     def forward(self, x):

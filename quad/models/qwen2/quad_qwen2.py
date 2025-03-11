@@ -1,3 +1,4 @@
+import math
 import functools
 import quad
 import quad.modules
@@ -18,9 +19,11 @@ from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from typing import Optional, Tuple
 from transformers import Cache
 from quad import TensorPack
-from quad.modules import QuantLinearW4A4, QuantLinearW4A8, Quantizer, OnlineHadamard
+from quad.modules import QuantLinearW4A4, QuantLinearW4A8, QuantLinearW4A16, Quantizer, OnlineHadamard
 from tqdm import tqdm
 from enum import Enum
+from fast_hadamard_transform import hadamard_transform
+from quad.modules.tunable_quantization import QuantFn, QuantParams
 
 ALL_LAYERNORM_LAYERS.append(quad.modules.RMSNorm)
 
@@ -28,6 +31,7 @@ class QuantMode(str, Enum):
     w4a4 = "w4a4"
     w4a8 = "w4a8"
     w4a4a8 = "w4a4a8"
+    w4a16 = "w4a16"
 
 class QuadQwen2Config(Qwen2Config):
     model_type = "quad_qwen2"
@@ -37,6 +41,8 @@ class QuadQwen2Config(Qwen2Config):
         self.pod_rank = kwargs.get("pod_rank", 0)
         self.input_clip_ratio = kwargs.get("input_clip_ratio", 1.0)
         self.quant_mode = kwargs.get("quant_mode", QuantMode.w4a4a8)
+        self.kv_clip_ratio = kwargs.get("kv_clip_ratio", 1.0)
+        self.enable_int4_kv = kwargs.get("enable_int4_kv", False)
 
 class LinearTypeMixin:
     
@@ -47,9 +53,14 @@ class LinearTypeMixin:
         elif self.config.quant_mode == QuantMode.w4a8:
             QuantLinearU = QuantLinearW4A8
             QuantLinearD = QuantLinearW4A8
-        else:
+        elif self.config.quant_mode == QuantMode.w4a4a8:
             QuantLinearU = QuantLinearW4A4
             QuantLinearD = QuantLinearW4A8
+        elif self.config.quant_mode == QuantMode.w4a16:
+            QuantLinearU = QuantLinearW4A16
+            QuantLinearU = QuantLinearW4A16
+        else:
+            raise ValueError
         return QuantLinearU, QuantLinearD
     
     def get_act_type(self):
@@ -59,9 +70,14 @@ class LinearTypeMixin:
         elif self.config.quant_mode == QuantMode.w4a8:
             ActTypeU = "int8"
             ActTypeD = "int8"
-        else:
+        elif self.config.quant_mode == QuantMode.w4a4a8:
             ActTypeU = "int4"
             ActTypeD = "int8"
+        elif self.config.quant_mode == QuantMode.w4a16:
+            ActTypeU = "fp16"
+            ActTypeD = "fp16"
+        else:
+            raise ValueError
         return ActTypeU, ActTypeD        
 
 
@@ -88,6 +104,17 @@ class QuadQwen2Attention(Qwen2FlashAttention2, LinearTypeMixin):
             Quantizer(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
             QLinearD.from_float(self.o_proj, extra_out=config.pod_rank)
         )
+
+    def quantize_states(self, states: torch.Tensor) -> torch.Tensor:
+        states = hadamard_transform(states, scale=1 / math.sqrt(states.shape[-1]))
+        if states.shape[-1] > 128:
+            states_shape = states.shape
+            states = states.view(states_shape[:-1] + (states_shape[-1] // 128, 128))
+            states = QuantFn.apply(states, QuantParams(clip_ratio=self.config.kv_clip_ratio, act_dtype="int4"))
+            states = states.view(states_shape)
+        else:
+            states = QuantFn.apply(states, QuantParams(clip_ratio=self.config.kv_clip_ratio, act_dtype="int4"))
+        states = hadamard_transform(states, scale=1 / math.sqrt(states.shape[-1]))
         
     def forward(
         self,
@@ -136,6 +163,10 @@ class QuadQwen2Attention(Qwen2FlashAttention2, LinearTypeMixin):
         else:
             cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        if self.config.enable_int4_kv:  # simulate int4 quantization
+            key_states = self.quantize_states(key_states)
+            value_states = self.quantize_states(value_states)
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
