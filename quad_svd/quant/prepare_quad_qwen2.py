@@ -25,28 +25,23 @@ from quad_svd.models.qwen2.quad_quantable_qwen2 import QuadQuantableQwen2Config,
 from quad_svd.models.qwen2.quad_qwen2 import QuadQwen2Config, QuadQwen2ForCausalLM
 
 # 定义正则表达式模式，包含两个捕获组：一个用于前缀，另一个用于特定的proj类型
-proj_pattern = r'^(.*?)\.(up_proj|gate_proj|down_proj|q_proj|k_proj|v_proj|o_proj)\.weight$'
+proj_pattern = r'^(.*?)\.(up_proj|gate_proj|q_proj|k_proj|v_proj)\.weight$'
 
 def convert_state_dict(args, state_dict: Dict[str, torch.Tensor], quantizier: Dict[str, torch.Tensor]):
-    new_state_dict = {}
+    new_state_dict_v1 = {}
     for name, tensor in state_dict.items():
         proj_match = re.search(proj_pattern, name)
         if proj_match:
             prefix = proj_match.group(1)
             proj_type = proj_match.group(2)
-            if proj_type == "o_proj":
-                new_state_dict[f"{prefix}.{proj_type}.1.weight"] = tensor
-            elif proj_type == "down_proj":
-                new_state_dict[f"{prefix}.{proj_type}.2.weight"] = tensor
+            if args.pod_rank > 0:
+                new_state_dict_v1[name] = tensor[:, args.pod_rank:].contiguous()
+                new_state_dict_v1[f"{prefix}.{proj_type}.w_outlier"] = tensor[:, :args.pod_rank].contiguous()
             else:
-                if args.pod_rank > 0:
-                    new_state_dict[name] = tensor[:, args.pod_rank:].contiguous()
-                    new_state_dict[f"{prefix}.{proj_type}.w_outlier"] = tensor[:, :args.pod_rank].contiguous()
-                else:
-                    new_state_dict[name] = tensor
+                new_state_dict_v1[name] = tensor
         else:
-            new_state_dict[name] = tensor
-    key_maps = {
+            new_state_dict_v1[name] = tensor
+    key_maps_v1 = {
         "mlp.down_proj": "mlp.down_proj.1",
         "self_attn.o_proj": "self_attn.o_proj.1"
     }
@@ -58,11 +53,14 @@ def convert_state_dict(args, state_dict: Dict[str, torch.Tensor], quantizier: Di
     }
     def _get_new_key(key):
         new_key = key
-        for old_name, new_name in key_maps.items():
+        for old_name, new_name in key_maps_v1.items():
             new_key = new_key.replace(old_name, new_name)
         for old_name, new_name in key_maps_v2.items():
             new_key = new_key.replace(old_name, new_name)
         return new_key
+    new_state_dict = {}
+    for key, value in new_state_dict_v1.items():
+        new_state_dict[_get_new_key(key)] = value
     for key, value in quantizier.items():
         new_key = _get_new_key(key)
         weight_scales = value.scale.to(utils.DEV)
@@ -83,17 +81,6 @@ def main(args):
     scale_utils.scale_model(model, args)
     svd_utils.decompose_model(model, args)
     rotation_utils.rotate_model(model, args)
-
-    testloader = data_utils.get_loaders(
-        args.eval_dataset,
-        seed=args.seed,
-        model=args.model,
-        seqlen=model.seqlen,
-        eval_mode=True
-    )
-    
-    dataset_ppl = ppl_utils.eval_ppl(model, testloader, utils.DEV, args)
-    print("dataset_ppl: {}".format(dataset_ppl))
 
     state_dict = model.state_dict()
     config: QuadQuantableQwen2Config = QuadQuantableQwen2Config.from_pretrained(args.model)
@@ -128,24 +115,11 @@ def main(args):
     torch.set_default_dtype(torch.float16)
     with transformers.modeling_utils.no_init_weights(): 
         model = QuadQwen2ForCausalLM(config=config)
+        model.seqlen = 2048
     model.to(utils.DEV)
     result = model.load_state_dict(state_dict, strict=False)
     assert len(result.missing_keys) == 0, result
     assert len(result.unexpected_keys) == 0, result
-
-    # Evaluating on dataset
-    testloader = data_utils.get_loaders(
-        args.eval_dataset,
-        seed=args.seed,
-        model=args.model,
-        seqlen=model.seqlen,
-        eval_mode=True
-    )
-    
-    dataset_ppl = ppl_utils.eval_ppl(model, testloader, utils.DEV, args)
-    print("dataset_ppl: {}".format(dataset_ppl))
-    exit(0)
-
     model.save_pretrained(args.save_path)
     with open(f"{args.save_path}/config.json") as f:
         config = json.load(f)
@@ -157,7 +131,7 @@ def main(args):
     with open(f"{args.save_path}/config.json", "w") as f:
         json.dump(config, f, indent=4)
     
-    shutil.copy("quad/models/qwen2/quad_qwen2.py", f"{args.save_path}/quad_qwen2.py")
+    shutil.copy("quad_svd/models/qwen2/quad_qwen2.py", f"{args.save_path}/quad_qwen2.py")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     tokenizer.save_pretrained(args.save_path)
 

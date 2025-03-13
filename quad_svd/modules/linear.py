@@ -53,11 +53,9 @@ class QuantLinearW4A4(torch.nn.Module):
             self.w_outlier = Parameter(
                 torch.empty((out_features, pod_rank), **factory_kwargs)
             )
-        else:
-            self.register_parameter("w_outlier", None)
-        if svd_rank > 0:
+        elif svd_rank > 0:
             self.w_outlier = Parameter(
-                torch.empty((out_features, pod_rank), **factory_kwargs)
+                torch.empty((out_features, svd_rank), **factory_kwargs)
             )
         else:
             self.register_parameter("w_outlier", None)

@@ -78,6 +78,7 @@ class QuadQwen2Attention(Qwen2FlashAttention2, LinearTypeMixin):
         self.quantizer = Quantizer(
             config.hidden_size,
             config.pod_rank,
+            0,
             config.input_clip_ratio,
             act_dtype=actU
         )
@@ -209,13 +210,14 @@ class QuadQwen2MLP(Qwen2MLP, LinearTypeMixin):
         self.quantizer = Quantizer(
             config.hidden_size,
             config.pod_rank,
+            0,
             config.input_clip_ratio,
             act_dtype=actU
         )
         self.up_proj = QLinearU.from_float(self.up_proj, pod_rank=config.pod_rank)
         self.gate_proj = QLinearU.from_float(self.gate_proj, pod_rank=config.pod_rank)
         self.down_proj = torch.nn.Sequential(
-            Quantizer(config.hidden_size, 0, config.svd_rank, config.input_clip_ratio, act_dtype=actD),
+            Quantizer(config.intermediate_size, 0, config.svd_rank, config.input_clip_ratio, act_dtype=actD),
             QLinearD.from_float(self.down_proj, extra_out=config.pod_rank, svd_rank=config.svd_rank),
         )
 
