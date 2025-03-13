@@ -363,16 +363,24 @@ def main():
     if len(tokenizer) > embedding_size:
         model.resize_token_embeddings(len(tokenizer))
 
-    args.dataset_name = 'code'
-    code_raw_datasets = load_dataset("json", data_files='/home/huyuxuan/projects/quad/misc/data/CodeFeedback-Filtered-Instruction/CodeFeedback-Filtered-Instruction.jsonl')
-    code_datasets = process_domain_data(args, code_raw_datasets, tokenizer, accelerator) 
+#    args.dataset_name = 'code'
+#    code_raw_datasets = load_dataset("json", data_files='/home/huyuxuan/projects/quad/misc/data/CodeFeedback-Filtered-Instruction/CodeFeedback-Filtered-Instruction.jsonl')
+#    code_datasets = process_domain_data(args, code_raw_datasets, tokenizer, accelerator) 
+#
+#    args.dataset_name = 'math'
+#    math_raw_datasets = load_dataset("json", data_files='/home/huyuxuan/projects/quad/misc/data/MetaMathQA/MetaMathQA-395K.json')
+#    math_datasets = process_domain_data(args, math_raw_datasets, tokenizer, accelerator) 
+#
+#    train_dataset = concatenate_datasets([code_datasets['train'], math_datasets['train']])
+#    eval_dataset = concatenate_datasets([code_datasets['validation'], math_datasets['validation']])
 
     args.dataset_name = 'math'
     math_raw_datasets = load_dataset("json", data_files='/home/huyuxuan/projects/quad/misc/data/MetaMathQA/MetaMathQA-395K.json')
     math_datasets = process_domain_data(args, math_raw_datasets, tokenizer, accelerator) 
 
-    train_dataset = concatenate_datasets([code_datasets['train'], math_datasets['train']])
-    eval_dataset = concatenate_datasets([code_datasets['validation'], math_datasets['validation']])
+    train_dataset = math_datasets['train']
+    eval_dataset = math_datasets['validation']
+    
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 3):
