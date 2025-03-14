@@ -82,6 +82,9 @@ class Quantizer(torch.nn.Module):
         if self.pod_rank > 0:
             x, outlier_x = self.split(x)
         else:
-            outlier_x = self.lr_fc(x)
+            if self.lr_fc is not None:
+                outlier_x = self.lr_fc(x)
+            else:
+                outlier_x = None
         x = self.quantize(x)
         return quad_svd.TensorPack(x, outlier_x)

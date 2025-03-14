@@ -16,16 +16,17 @@ from quad.quant.quantization import quant_utils
 from quad.quant.data_utils import get_loaders
 from quad.ops.hadamard import random_hadamard_matrix, apply_exact_had_to_linear, is_pow2
 
-def scale_attention(layer, act_scale, model_type, head_dim) -> None:
+def scale_attention(layer, act_scale, model_type, head_dim, scale_alpha) -> None:
     if not (model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL):
         raise NotImplementedError(f'model type {model_type}')
-    eps = 1e-5
-    alpha = 0.8
+    eps = 1e-12
+    alpha = scale_alpha
     fc0: nn.Linear = layer.self_attn.o_proj
     fc1: nn.Linear = layer.self_attn.v_proj
     dtype = fc0.weight.dtype
-    weight_scale = fc0.weight.abs().max(dim=0).values
-    scale = torch.pow(act_scale, alpha) / (torch.pow(weight_scale, 1 - alpha) + eps)
+    # weight_scale = fc0.weight.abs().max(dim=0).values
+    # scale = torch.pow(act_scale, alpha) / (torch.pow(weight_scale, 1 - alpha) + eps)
+    scale = torch.pow(act_scale, alpha)
     if fc0.in_features != fc1.out_features:
         num_repeat = fc0.in_features // fc1.out_features
         scale = scale.view(-1, num_repeat, head_dim).mean(dim=1, keepdim=True)
@@ -39,17 +40,18 @@ def scale_attention(layer, act_scale, model_type, head_dim) -> None:
     if fc1.bias is not None:
         fc1.bias.data = (fc1.bias.data / fc1_scale).to(dtype)
 
-def scale_mlp(layer, act_scale, model_type):
+def scale_mlp(layer, act_scale, model_type, scale_alpha):
     # Rotate the MLP output weights and bias.
     if not (model_type == module_utils.LLAMA_MODEL or model_type == module_utils.QWEN2_MODEL):
         raise NotImplementedError(f'model type {model_type}')
-    eps = 1e-5
-    alpha = 0.85
+    eps = 1e-12
+    alpha = scale_alpha
     fc0: nn.Linear = layer.mlp.down_proj
     fc1: nn.Linear = layer.mlp.up_proj
     dtype = fc0.weight.dtype
-    weight_scale = fc0.weight.abs().max(dim=0).values
-    scale = torch.pow(act_scale, alpha) / (torch.pow(weight_scale, 1 - alpha) + eps)
+    # weight_scale = fc0.weight.abs().max(dim=0).values
+    # scale = torch.pow(act_scale, alpha) / (torch.pow(weight_scale, 1 - alpha) + eps)
+    scale = torch.pow(act_scale, alpha)
     fc0.weight.data = (fc0.weight.data * scale[None, :]).to(dtype)
     fc1.weight.data = (fc1.weight.data / scale[:, None]).to(dtype)
     if fc1.bias is not None:
@@ -174,5 +176,5 @@ def scale_model(model, args):
     layers = module_utils.get_transformer_layers(model, 
                                                 model_type=model_type)
     for idx, layer in enumerate(tqdm.tqdm(layers, unit="layer", desc="Scale...")):
-        scale_attention(layers[idx], act_scale_dict[idx]["o_proj"], model_type, head_dim)
-        scale_mlp(layers[idx], act_scale_dict[idx]["down_proj"], model_type)
+        scale_attention(layers[idx], act_scale_dict[idx]["o_proj"], model_type, head_dim, args.scale_alpha)
+        scale_mlp(layers[idx], act_scale_dict[idx]["down_proj"], model_type, args.scale_alpha)
