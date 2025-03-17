@@ -106,6 +106,7 @@ def main(args):
     )
     config.tie_word_embeddings = False
     config.pod_rank = args.pod_rank
+    config.svd_rank = args.svd_rank
     config.input_clip_ratio = args.a_clip_ratio
     config.quant_mode = args.quant_mode
     torch.set_default_dtype(torch.float16)

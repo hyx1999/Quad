@@ -182,12 +182,12 @@ class QuadQuantableLlamaMLP(LlamaMLP):
                     ),
                     "lora_B": nn.Linear(
                         out_features=config.svd_rank,
-                        in_features=self.num_heads * self.head_dim,
+                        in_features=self.intermediate_size,
                         bias=False,
                     ),
                 }
             )
-            add_lora_in_linear(self.o_proj)
+            add_lora_in_linear(self.down_proj)
         else:
             self.down_proj.register_module("adapters", None)
 
