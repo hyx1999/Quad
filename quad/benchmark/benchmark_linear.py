@@ -44,12 +44,12 @@ def module_benchmark(module, x):
 def module_benchmark_w4a4(kernel, x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r):    
     # warmup
     for i in range(num_warmup_steps):
-        out = kernel(x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r)
+        out = quad_cuda.s4s4_linear_cutlass(x_quant, x_scale, w_quant, w_scale, w_bias)
     torch.cuda.synchronize()
     
     start_time = time.perf_counter()
     for i in range(num_bench_steps):
-        out = kernel(x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r)
+        out = quad_cuda.s4s4_linear_cutlass(x_quant, x_scale, w_quant, w_scale, w_bias)
     torch.cuda.synchronize()
     
     end_time = time.perf_counter()
@@ -99,11 +99,12 @@ def linear4bit_benchmark(args):
             baseline_mod.weight.data = torch.randint_like(baseline_mod.weight.data,
                                                           low=-8, high=7).to(dtype)
             
-            kernel = get_fuse_w4a4_w16a16_matmul_kernel(
-                feature_dim_in,
-                feature_dim_out,
-                # pod_rank
-            )
+            # kernel = get_fuse_w4a4_w16a16_matmul_kernel(
+            #     feature_dim_in,
+            #     feature_dim_out,
+            #     pod_rank
+            # )
+            kernel = None
             
             x_int = torch.randint_like(x, low=0, high=4).to(torch.int8).cuda()
             w_int = torch.randint_like(baseline_mod.weight.data, low=0, high=4).to(torch.int8).cuda()
@@ -119,17 +120,17 @@ def linear4bit_benchmark(args):
             times_w4a8 = []
             for i in range(10):
                 times_w4a8.append(
-                    module_benchmark_w4a8(None, x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r)
+                    module_benchmark_w4a8(None, x_int, x_scale, w_quant, w_scale, w_bias, x_r, w_r)
                 )
             print(f"w4a8 time: {np.mean(times_w4a8):.3f} +- {1.96 * np.std(times_w4a8):.3f}ms")
 
             print(f"{dtype}. Sizes: {baseline_mod.weight.shape}")
-            times_w4a4_w16a16 = []
+            times_w4a4 = []
             for i in range(10):
-                times_w4a4_w16a16.append(
-                    module_benchmark_w4a4(kernel, x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r)
+                times_w4a4.append(
+                    module_benchmark_w4a4(None, x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r)
                 )
-            print(f"w4a4+w16a16 time: {np.mean(times_w4a4_w16a16):.3f} +- {1.96 * np.std(times_w4a4_w16a16):.3f}ms")
+            print(f"w4a4 time: {np.mean(times_w4a4):.3f} +- {1.96 * np.std(times_w4a4):.3f}ms")
             
             times_baseline = []
             for i in range(10):
@@ -137,11 +138,8 @@ def linear4bit_benchmark(args):
             print(f"FP16 time: {np.mean(times_baseline):.3f} +- {1.96 * np.std(times_baseline):.3f}ms")
             
             print(f"Speedup: {np.mean(times_baseline) / np.mean(times_w4a8):.3f}x")
-            print(f"Speedup: {np.mean(times_baseline) / np.mean(times_w4a4_w16a16):.3f}x")
+            print(f"Speedup: {np.mean(times_baseline) / np.mean(times_w4a4):.3f}x")
             
-            # table-style output
-            # print(f'{feature_dim_in}x{feature_dim_out} & {args.bsz} & {np.mean(times_baseline):.3f} & {np.mean(times_w4a8):.3f} \\\\')
-            # print('--------------')
             
 
 if __name__ == '__main__':

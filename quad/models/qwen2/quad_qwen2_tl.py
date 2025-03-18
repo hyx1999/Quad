@@ -19,14 +19,7 @@ from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from typing import Optional, Tuple
 from transformers import Cache
 from quad import TensorPack
-from quad.modules import (
-    QuantLinearW4A4Tl, 
-    QuantLinearW4A8Tl, 
-    QuantizerTl, 
-    RMSNormFuseQuantTl, 
-    OnlineHadamard,
-    RMSNorm,
-)
+from quad.modules import QuantLinearW4A4Tl, QuantLinearW4A8Tl, QuantizerTl, OnlineHadamard
 from tqdm import tqdm
 from enum import Enum
 from fast_hadamard_transform import hadamard_transform
@@ -38,6 +31,7 @@ class QuantMode(str, Enum):
     w4a4 = "w4a4"
     w4a8 = "w4a8"
     w4a4a8 = "w4a4a8"
+    w4a16 = "w4a16"
 
 class QuadQwen2Config(Qwen2Config):
     model_type = "quad_qwen2"
@@ -90,18 +84,36 @@ class QuadQwen2Attention(Qwen2FlashAttention2, LinearTypeMixin):
         actU, actD = self.get_act_type()
         
         config: QuadQwen2Config = self.config
+        self.quantizer = QuantizerTl(
+            config.hidden_size,
+            config.pod_rank,
+            config.input_clip_ratio,
+            act_dtype=actU
+        )
         self.q_proj = QLinearU.from_float(self.q_proj, pod_rank=config.pod_rank)
         self.k_proj = QLinearU.from_float(self.k_proj, pod_rank=config.pod_rank)
         self.v_proj = QLinearU.from_float(self.v_proj, pod_rank=config.pod_rank)
-        self.o_proj_hadamard = OnlineHadamard(self.num_heads)
+        self.o_proj_hadamard = quad.modules.OnlineHadamard(self.num_heads)
         self.o_proj = nn.Sequential(
-            QuantizerTl(config.hidden_size, config.input_clip_ratio, act_dtype=actD),
+            QuantizerTl(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
             QLinearD.from_float(self.o_proj, extra_out=config.pod_rank)
         )
+
+    def quantize_states(self, states: torch.Tensor) -> torch.Tensor:
+        states = hadamard_transform(states, scale=1 / math.sqrt(states.shape[-1]))
+        if states.shape[-1] > 128:
+            states_shape = states.shape
+            states = states.view(states_shape[:-1] + (states_shape[-1] // 128, 128))
+            states = QuantFn.apply(states, QuantParams(clip_ratio=self.config.kv_clip_ratio, act_dtype="int4"))
+            states = states.view(states_shape)
+        else:
+            states = QuantFn.apply(states, QuantParams(clip_ratio=self.config.kv_clip_ratio, act_dtype="int4"))
+        states = hadamard_transform(states, scale=1 / math.sqrt(states.shape[-1]))
+        return states
         
     def forward(
         self,
-        hidden_states: TensorPack,
+        hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Cache] = None,
@@ -121,9 +133,9 @@ class QuadQwen2Attention(Qwen2FlashAttention2, LinearTypeMixin):
 
         output_attentions = False
 
-        hidden_states_pack = hidden_states
-        bsz, q_len, _ = hidden_states_pack.x.quantized_x.size()
-
+        bsz, q_len, _ = hidden_states.size()
+        
+        hidden_states_pack: TensorPack = self.quantizer(hidden_states)
         query_states = self.q_proj(hidden_states_pack)
         key_states = self.k_proj(hidden_states_pack)
         value_states = self.v_proj(hidden_states_pack)
@@ -146,6 +158,10 @@ class QuadQwen2Attention(Qwen2FlashAttention2, LinearTypeMixin):
         else:
             cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        if self.config.enable_int4_kv:  # simulate int4 quantization
+            key_states = self.quantize_states(key_states)
+            value_states = self.quantize_states(value_states)
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -217,15 +233,22 @@ class QuadQwen2MLP(Qwen2MLP, LinearTypeMixin):
         QLinearU, QLinearD = self.get_linear_type()
         actU, actD = self.get_act_type()
 
+        self.quantizer = QuantizerTl(
+            config.hidden_size,
+            config.pod_rank,
+            config.input_clip_ratio,
+            act_dtype=actU
+        )
         self.up_proj = QLinearU.from_float(self.up_proj, pod_rank=config.pod_rank)
         self.gate_proj = QLinearU.from_float(self.gate_proj, pod_rank=config.pod_rank)
         self.down_proj = torch.nn.Sequential(
-            OnlineHadamard(self.intermediate_size),
-            QuantizerTl(self.intermediate_size, config.input_clip_ratio, act_dtype=actD),
+            quad.modules.OnlineHadamard(self.intermediate_size),
+            QuantizerTl(self.intermediate_size, 0, config.input_clip_ratio, act_dtype=actD),
             QLinearD.from_float(self.down_proj, extra_out=config.pod_rank),
         )
 
     def forward(self, x):
+        x = self.quantizer(x)
         return super().forward(x)
 
 
@@ -237,13 +260,11 @@ class QuadQwen2ForCausalLM(Qwen2ForCausalLM):
         self._expand_embedding()
         self._expand_lm_head()
         for layer_idx, layer in tqdm(enumerate(self.model.layers), total=len(self.model.layers), desc="init model..."):
-            layer.input_layernorm = RMSNormFuseQuantTl(
-                config.hidden_size, config.pod_rank, clip_ratio=config.input_clip_ratio, eps=config.rms_norm_eps)
             layer.self_attn = QuadQwen2Attention(config=config, layer_idx=layer_idx)
-            layer.post_attention_layernorm = RMSNormFuseQuantTl(
-                config.hidden_size, config.pod_rank, clip_ratio=config.input_clip_ratio, eps=config.rms_norm_eps)
+            layer.input_layernorm = quad.modules.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+            layer.post_attention_layernorm = quad.modules.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
             layer.mlp = QuadQwen2MLP(config=config)
-        self.model.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.model.norm = quad.modules.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.cache_dtype = "float16"
 
     def _expand_embedding(self):

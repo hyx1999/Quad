@@ -13,9 +13,7 @@ from quad.models.qwen2.quad_qwen2 import (
 from quad.models.qwen2.quad_qwen2_tl import QuadQwen2Config, QuadQwen2ForCausalLM
 from tqdm import tqdm
 
-model_configs = [
-    ("misc/checkpoints/Qwen2.5-7B-quad", "/data/models/Qwen2.5-7B"),
-]
+model_configs = ["/data/models/Qwen2.5-7B"]
 
 benchmark_dtypes = ["int4", torch.float16]
 num_warmup_steps = 0
@@ -61,30 +59,27 @@ def module_benchmark(module):
 
 def get_model_quantized(config_name):
     config: QuadQwen2Config = QuadQwen2Config.from_pretrained(config_name)
-    model = QuadQwen2ForCausalLM.from_pretrained(
-        config_name, 
-        config=config,
-        attn_implementation="flash_attention_2",
-        torch_dtype=torch.float16,
-        trust_remote_code=True,
-    )
-    for name, buffer in model.named_buffers():
-        if buffer.dtype == torch.uint8:
-            buffer.data = buffer.data.to(torch.int8)
-    model.to("cuda")
-    print("device:", model.device)
-    return model
-
-def get_model_quarot(config_name):
-    config: QuaRotQwen2Config = QuaRotQwen2Config.from_pretrained(config_name)
-    config.pod_rank = 0
+    config.pod_rank = 64
+    config.quant_mode = "w4a4"
     config._attn_implementation = "flash_attention_2"
     with transformers.modeling_utils.no_init_weights():
-        model = QuaRotQwen2ForCausalLM(config=config)
+        model = QuadQwen2ForCausalLM(config=config)
         model.half()
     model.to("cuda")
     print("device:", model.device)
     return model
+
+# def get_model_quarot(config_name):
+#     config: QuaRotQwen2Config = QuaRotQwen2Config.from_pretrained(config_name)
+#     config.pod_rank = 0
+#     config.quant_mode = "w4a4"
+#     config._attn_implementation = "flash_attention_2"
+#     with transformers.modeling_utils.no_init_weights():
+#         model = QuaRotQwen2ForCausalLM(config=config)
+#         model.half()
+#     model.to("cuda")
+#     print("device:", model.device)
+#     return model
 
 def get_model_hf(config_name):
     return transformers.Qwen2ForCausalLM.from_pretrained(
@@ -149,22 +144,19 @@ def run_all_for_model(model, bsz, prefill, decode):
 
 def benchmark(args):
     
-    for config_names in model_configs:
-        quad_config_name = config_names[0]
-        hf_config_name = config_names[1]
+    for hf_config_name in model_configs:
 
-        model = get_model_quantized(quad_config_name)
+        model = get_model_quantized(hf_config_name)
         time_prefill_i4, time_decode_i4, time_e2e_i4, mem_i4 = run_all_for_model(
             model, args.batch_size, args.prefill_seq_len, args.decode_steps)
         del model
         _cleanup()
 
-        model = get_model_quarot(quad_config_name)
+        model = get_model_hf(hf_config_name)
         time_prefill_f16, time_decode_f16, time_e2e_f16, mem_f16 = run_all_for_model(
             model, args.batch_size, args.prefill_seq_len, args.decode_steps)
         del model
         _cleanup()
-
 
         print(f"Prefill Int4 time: {np.mean(time_prefill_i4):.3f} +- {1.96 * np.std(time_prefill_i4):.3f}ms")
         print(f"Prefill FP16 time: {np.mean(time_prefill_f16):.3f} +- {1.96 * np.std(time_prefill_f16):.3f}ms")

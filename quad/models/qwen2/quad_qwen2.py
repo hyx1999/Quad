@@ -249,7 +249,7 @@ class QuadQwen2MLP(Qwen2MLP, LinearTypeMixin):
         self.gate_proj = QLinearU.from_float(self.gate_proj, pod_rank=config.pod_rank)
         self.down_proj = torch.nn.Sequential(
             quad.modules.OnlineHadamard(self.intermediate_size),
-            Quantizer(config.hidden_size, 0, config.input_clip_ratio, act_dtype=actD),
+            Quantizer(self.intermediate_size, 0, config.input_clip_ratio, act_dtype=actD),
             QLinearD.from_float(self.down_proj, extra_out=config.pod_rank),
         )
 
