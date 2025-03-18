@@ -56,7 +56,8 @@ if __name__ == '__main__':
                     'src/bindings.cpp',
                     'src/quant.cu',
                     'src/gemm.cu',
-                    # 'src/s8s4_linear.cu',
+                    'src/s4s4_linear.cu',
+                    'src/s8s4_linear.cu',
                 ],
                 include_dirs=[
                     os.path.join(setup_dir, 'include'),

@@ -3,6 +3,8 @@
 // Include all files
 #include <quant.h>
 #include <gemm.h>
+#include <s4s4_linear.h>
+#include <s8s4_linear.h>
 
 torch::Tensor matmul_w4a4(const torch::Tensor &A, const torch::Tensor &B)
 {
@@ -39,26 +41,6 @@ torch::Tensor matmul_w4a8(const torch::Tensor &A, const torch::Tensor &B)
 
   return C;
 }
-
-/*
-torch::Tensor matmul_w8a8(const torch::Tensor &A, const torch::Tensor &B)
-{
-  torch::checkAllContiguous("matmul", {{A, "A", 0},
-                                       {B, "B", 1}});
-  torch::checkDeviceType("matmul", {A, B}, at::DeviceType::CUDA);
-
-  torch::checkAllSameGPU("matmul", {{A, "A", 0},
-                                    {B, "B", 1}});
-  uint32_t M = A.size(0);
-  uint32_t N = B.size(0);
-  uint32_t K = A.size(1); // 4bit packing is on the columns
-  auto C = torch::empty({M, N}, torch::dtype(torch::kInt32).device(A.device()));
-
-  matmul_w8a8_host(A.data_ptr<int8_t>(), B.data_ptr<int8_t>(), M, N, K, C.data_ptr<int32_t>());
-
-  return C;
-}
-*/
 
 torch::Tensor sym_quant_fp16_i4(const torch::Tensor &x, const torch::Tensor &scale)
 {
@@ -232,6 +214,12 @@ torch::Tensor sym_dequant_weight(const torch::Tensor &q,
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
+  m.def("s4s4_linear_cutlass", &s4s4_linear_cutlass,
+    "...",
+    py::arg("xq"), py::arg("x_scale"), py::arg("wq"), py::arg("w_scale"), py::arg("bias"));
+  m.def("s8s4_linear_cutlass", &s8s4_linear_cutlass,
+    "...",
+    py::arg("xq"), py::arg("x_scale"), py::arg("wq"), py::arg("w_scale"), py::arg("bias"));
   m.def("matmul_w4a4", &matmul_w4a4,
         "input: (A: torch.Tensor(M x K, UINT8, CUDA), B: torch.Tensor(N x K, "
         "UINT8, CUDA))\n"
