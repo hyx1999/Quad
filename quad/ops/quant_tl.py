@@ -3,10 +3,11 @@ import math
 import tilelang as tl
 import tilelang.language as T
 from collections import defaultdict
+from typing import Tuple
 
 kernel_cache = defaultdict(lambda: None)
 
-def tl_quant_i4(M, N, clip_ratio: float):
+def tl_quant_i4(M, N, clip_ratio: float, strides: Tuple[int, ...]):
     blk_m = 1 
     blk_n = 512
     num_threads = 128
@@ -29,7 +30,13 @@ def tl_quant_i4(M, N, clip_ratio: float):
             A_ma = T.alloc_fragment([blk_m], dtype="float32")
             B_s = T.alloc_fragment([blk_m], dtype="float32")
             tid = T.get_thread_binding()
-
+            
+            T.annotate_layout({
+                A: T.Layout(
+                    (M, N), lambda i, j: [i * strides[0] + j * strides[1]]
+                )
+            })
+            
             num_k_step = T.ceildiv(N, blk_n)
 
             T.fill(A_ma_blk, -T.infinity("float32"))
@@ -70,13 +77,14 @@ def tl_quant_i4(M, N, clip_ratio: float):
     return main
 
 
-def get_quant_i4_kernel(hidden_size: int, clip_ratio: float):
+def get_quant_i4_kernel(hidden_size: int, clip_ratio: float, strides: Tuple[int, ...]):
     if kernel_cache[(hidden_size, clip_ratio, "i4")] is None:
         print("init tl_quant_i4 kernel...")
         program = tl_quant_i4(
             T.symbolic("num_tokens"),
             hidden_size,
             clip_ratio,
+            strides
         )        
         quant_i4_kernel = tl.compile(program, out_idx=[1, 2], target="cuda", execution_backend="cython")
         kernel_cache[(hidden_size, clip_ratio, "i4")] = quant_i4_kernel
@@ -89,7 +97,7 @@ def get_quant_i4_kernel(hidden_size: int, clip_ratio: float):
     #     return quant_i4_kernel(x, clip_ratio=clip_ratio)
     
 
-def tl_quant_i8(M, N, clip_ratio: float):
+def tl_quant_i8(M, N, clip_ratio: float, strides: Tuple[int, ...]):
     blk_m = 1 
     blk_n = 512
     num_threads = 128
@@ -112,6 +120,12 @@ def tl_quant_i8(M, N, clip_ratio: float):
             A_ma = T.alloc_fragment([blk_m], dtype="float32")
             B_s_blk = T.alloc_fragment([blk_m], dtype="float32")
             tid = T.get_thread_binding()
+
+            T.annotate_layout({
+                A: T.Layout(
+                    (M, N), lambda i, j: [i * strides[0] + j * strides[1]]
+                )
+            })
 
             num_k_step = T.ceildiv(N, blk_n)
 
@@ -143,13 +157,14 @@ def tl_quant_i8(M, N, clip_ratio: float):
     return main
 
 
-def get_quant_i8_kernel(hidden_size: int, clip_ratio: float):
+def get_quant_i8_kernel(hidden_size: int, clip_ratio: float, strides: Tuple[int, ...]):
     if kernel_cache[(hidden_size, clip_ratio, "i8")] is None:
         print("init tl_quant_i8 kernel...")
         program = tl_quant_i8(
             T.symbolic("num_tokens"),
             hidden_size,
-            clip_ratio
+            clip_ratio,
+            strides
         )
         quant_i8_kernel = tl.compile(program, out_idx=[1, 2], target="cuda", execution_backend="cython")
         kernel_cache[(hidden_size, clip_ratio, "i8")] = quant_i8_kernel

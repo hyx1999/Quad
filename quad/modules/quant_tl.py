@@ -24,9 +24,9 @@ class QuantizerTl(torch.nn.Module):
         self.input_clip_ratio = input_clip_ratio
         self.act_dtype = act_dtype
         if act_dtype == "int4":
-            self.kernel = get_quant_i4_kernel(hidden_size, input_clip_ratio)
+            self.kernel = get_quant_i4_kernel(hidden_size, input_clip_ratio, (hidden_size + pod_rank, 1))
         elif act_dtype == "int8":
-            self.kernel = get_quant_i8_kernel(hidden_size, input_clip_ratio)
+            self.kernel = get_quant_i8_kernel(hidden_size, input_clip_ratio, (hidden_size + pod_rank, 1))
         else:
             raise ValueError
 
@@ -43,7 +43,7 @@ class QuantizerTl(torch.nn.Module):
         return scales_x
 
     def quantize(self, x: torch.Tensor):
-        x, x_shape = flatten_last_dim_and_return_shape(x.contiguous())
+        x, x_shape = flatten_last_dim_and_return_shape(x)
         x_quant, x_scale = self.kernel(x)
         return quad.QTensor(x_quant.view(*x_shape, -1), x_scale.view(*x_shape))
 
