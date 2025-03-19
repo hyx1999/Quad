@@ -62,14 +62,6 @@ class QuantLinearW4A4Tl(torch.nn.Module):
         self.matmul = self.init_matmul(pod_rank)
 
     def init_matmul(self, pod_rank: int):
-        # if pod_rank == 0:
-        #     kernel = get_w4a4_matmul_kernel(self.in_features, self.out_features)
-        #     return lambda x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r: \
-        #         kernel(x_quant, x_scale, w_quant, w_scale, w_bias)
-        # else:
-        #     kernel = get_fuse_w4a4_w16a16_matmul_kernel(self.in_features, self.out_features, pod_rank)
-        #     return lambda x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r: \
-        #         kernel(x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r)
         if pod_rank == 0:
             return lambda x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r: \
                 quad_cuda.s4s4_linear_cutlass(x_quant, x_scale, w_quant, w_scale, w_bias)
@@ -120,7 +112,6 @@ class QuantLinearW4A8Tl(QuantLinearW4A4Tl):
 
     def init_matmul(self, pod_rank: int):
         if pod_rank == 0:
-            # kernel = get_w4a8_matmul_kernel(self.in_features, self.out_features)
             return lambda x_quant, x_scale, w_quant, w_scale, w_bias, x_r, w_r: \
                 quad_cuda.s8s4_linear_cutlass(x_quant, x_scale, w_quant, w_scale, w_bias)
         else:

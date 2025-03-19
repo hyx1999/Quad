@@ -27,7 +27,7 @@ def tl_quant_i4(M, N, clip_ratio: float):
             B_shared = T.alloc_fragment([blk_m, blk_n // 2], dtype=out_dtype)
             A_ma_blk = T.alloc_fragment([blk_m, blk_n], dtype="float32")  # ma -> max + abs
             A_ma = T.alloc_fragment([blk_m], dtype="float32")
-            B_s_blk = T.alloc_fragment([blk_m], dtype="float32")
+            B_s = T.alloc_fragment([blk_m], dtype="float32")
             tid = T.get_thread_binding()
 
             num_k_step = T.ceildiv(N, blk_n)
@@ -41,32 +41,31 @@ def tl_quant_i4(M, N, clip_ratio: float):
             T.reduce_max(A_ma_blk, A_ma, dim=1)
 
             for i in T.serial(blk_m):
-                B_s_blk[i] = (A_ma[i] / max_int4) * clip_ratio
+                B_s[i] = (A_ma[i] / max_int4) * clip_ratio
 
             for k in T.Pipelined(num_k_step):
-                T.copy(A[bx * blk_m, k * blk_n], A_shared)  # cause "RuntimeError: CUDA error: misaligned address"
+                T.copy(A[bx * blk_m, k * blk_n], A_shared)
                 for i, j in T.Parallel(blk_m, blk_n // 2):
                     j0 = 2 * j
                     j1 = 2 * j + 1
                     q0_ = T.cast(T.clamp(
-                        T.round(A_shared[i, j0] / B_s_blk[i]), 
+                        T.cast(T.round(A_shared[i, j0] / B_s[i]), "int32"), 
                         min_int4, 
                         max_int4
                     ), "int8")
                     q1_ = T.cast(T.clamp(
-                        T.round(A_shared[i, j1] / B_s_blk[i]),
+                        T.cast(T.round(A_shared[i, j1] / B_s[i]), "int32"),
                         min_int4, 
                         max_int4,
                     ), "int8")
-                    q0 = T.cast(T.if_then_else(q0_ < 0, q0_ + T.cast(2 ** 4, "int8"), q0_), "uint8")
-                    q1 = T.cast(T.if_then_else(q1_ < 0, q1_ + T.cast(2 ** 4, "int8"), q1_), "uint8")
-                    q_i8 = q0 | (q1 << 4)
-                    B_shared[i, j] = q_i8
+                    q0 = T.if_then_else(q0_ < 0, q0_ + T.cast(2 ** 4, "int8"), q0_)
+                    q1 = T.if_then_else(q1_ < 0, q1_ + T.cast(2 ** 4, "int8"), q1_)
+                    B_shared[i, j] = q0 | (q1 << 4)
                 T.copy(B_shared, B[bx * blk_m, k * (blk_n // 2)])
 
             if tid == 0:
                 for i in T.serial(blk_m):
-                    B_scale[bx * blk_m + i] = B_s_blk[i]
+                    B_scale[bx * blk_m + i] = B_s[i]
 
     return main
 

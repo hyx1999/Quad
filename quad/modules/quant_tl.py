@@ -41,9 +41,9 @@ class QuantizerTl(torch.nn.Module):
             torch.float16
         ) * self.input_clip_ratio
         return scales_x
-    
+
     def quantize(self, x: torch.Tensor):
-        x, x_shape = flatten_last_dim_and_return_shape(x)
+        x, x_shape = flatten_last_dim_and_return_shape(x.contiguous())
         x_quant, x_scale = self.kernel(x)
         return quad.QTensor(x_quant.view(*x_shape, -1), x_scale.view(*x_shape))
 
