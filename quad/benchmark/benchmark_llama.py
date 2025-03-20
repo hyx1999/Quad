@@ -10,8 +10,8 @@ from transformers.cache_utils import DynamicCache
 from quad.models.llama.quad_llama_tl import QuadLlamaConfig, QuadLlamaForCausalLM
 from tqdm import tqdm
 
-# model_configs = ["/data/models/Llama-2-7b-hf"]
-model_configs = ["/data/models/Llama-3-8b-hf"]
+model_configs = ["/data/models/Llama-2-13b-hf"]
+# model_configs = ["/data/models/Llama-3-8b-hf"]
 
 benchmark_dtypes = ["int4", torch.float16]
 num_warmup_steps = 0

@@ -60,7 +60,6 @@ def module_benchmark(module):
 def get_model_quantized(config_name):
     config: QuadQwen2Config = QuadQwen2Config.from_pretrained(config_name)
     config.pod_rank = 64
-    config.quant_mode = "w4a4"
     config._attn_implementation = "flash_attention_2"
     with transformers.modeling_utils.no_init_weights():
         model = QuadQwen2ForCausalLM(config=config)
@@ -69,17 +68,6 @@ def get_model_quantized(config_name):
     print("device:", model.device)
     return model
 
-# def get_model_quarot(config_name):
-#     config: QuaRotQwen2Config = QuaRotQwen2Config.from_pretrained(config_name)
-#     config.pod_rank = 0
-#     config.quant_mode = "w4a4"
-#     config._attn_implementation = "flash_attention_2"
-#     with transformers.modeling_utils.no_init_weights():
-#         model = QuaRotQwen2ForCausalLM(config=config)
-#         model.half()
-#     model.to("cuda")
-#     print("device:", model.device)
-#     return model
 
 def get_model_hf(config_name):
     return transformers.Qwen2ForCausalLM.from_pretrained(
@@ -174,12 +162,12 @@ def benchmark(args):
             print(f"Speedup: {np.mean(time_e2e_f16) / np.mean(time_e2e_i4):.3f}x")
             print(f'E2E & {hf_config_name} & {args.batch_size} & {args.prefill_seq_len} & {args.decode_steps} & {np.mean(time_e2e_f16):.3f} & {np.mean(time_e2e_i4):.3f}\\\\')
         
-        # table-style output
+            # table-style output
 
-        print(f"Int4 memory: {np.mean(mem_i4) / (1024 * 1024 * 1024):.3f}GB +- {1.96 * np.std(mem_i4):.3f}")
-        print(f"FP16 memory: {np.mean(mem_f16) / (1024 * 1024 * 1024):.3f}GB +- {1.96 * np.std(mem_f16):.3f}")
-        print(f"Memory saving: {np.mean(mem_f16) / np.mean(mem_i4):.3f}x")
-        print(f'Memory saving & {hf_config_name} & {args.batch_size} & {args.prefill_seq_len} & {args.decode_steps} & {np.mean(mem_i4) / (1024 * 1024 * 1024):.3f}GB & {np.mean(mem_f16) / (1024 * 1024 * 1024):.3f}GB\\\\')
+            print(f"Int4 memory: {np.mean(mem_i4) / (1024 * 1024 * 1024):.3f}GB +- {1.96 * np.std(mem_i4):.3f}")
+            print(f"FP16 memory: {np.mean(mem_f16) / (1024 * 1024 * 1024):.3f}GB +- {1.96 * np.std(mem_f16):.3f}")
+            print(f"Memory saving: {np.mean(mem_f16) / np.mean(mem_i4):.3f}x")
+            print(f'Memory saving & {hf_config_name} & {args.batch_size} & {args.prefill_seq_len} & {args.decode_steps} & {np.mean(mem_i4) / (1024 * 1024 * 1024):.3f}GB & {np.mean(mem_f16) / (1024 * 1024 * 1024):.3f}GB\\\\')
         
         print('--------------')
 
@@ -199,7 +187,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--decode_steps', type=int,
         help='Decode steps',
-        default=1,
+        default=None,
     )
     
     args = parser.parse_args()
