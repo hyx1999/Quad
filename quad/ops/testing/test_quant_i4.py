@@ -4,10 +4,11 @@ import tilelang as tl
 import tilelang.language as T
 import tilelang.testing
 import quad
+from typing import Tuple
 
 torch.manual_seed(0)
 
-def tl_quant_i4(M, N, clip_ratio: float):
+def tl_quant_i4(M, N, clip_ratio: float, strides: Tuple[int, ...]):
     blk_m = 1 
     blk_n = 512
     num_threads = 128
@@ -28,9 +29,15 @@ def tl_quant_i4(M, N, clip_ratio: float):
             B_shared = T.alloc_fragment([blk_m, blk_n // 2], dtype=out_dtype)
             A_ma_blk = T.alloc_fragment([blk_m, blk_n], dtype="float32")  # ma -> max + abs
             A_ma = T.alloc_fragment([blk_m], dtype="float32")
-            B_s_blk = T.alloc_fragment([blk_m], dtype="float32")
+            B_s = T.alloc_fragment([blk_m], dtype="float32")
             tid = T.get_thread_binding()
-
+            
+            T.annotate_layout({
+                A: T.Layout(
+                    (M, N), lambda i, j: [i * strides[0] + j * strides[1]]
+                )
+            })
+            
             num_k_step = T.ceildiv(N, blk_n)
 
             T.fill(A_ma_blk, -T.infinity("float32"))
@@ -42,7 +49,7 @@ def tl_quant_i4(M, N, clip_ratio: float):
             T.reduce_max(A_ma_blk, A_ma, dim=1)
 
             for i in T.serial(blk_m):
-                B_s_blk[i] = (A_ma[i] / max_int4) * clip_ratio
+                B_s[i] = (A_ma[i] / max_int4) * clip_ratio
 
             for k in T.Pipelined(num_k_step):
                 T.copy(A[bx * blk_m, k * blk_n], A_shared)
@@ -50,12 +57,12 @@ def tl_quant_i4(M, N, clip_ratio: float):
                     j0 = 2 * j
                     j1 = 2 * j + 1
                     q0_ = T.cast(T.clamp(
-                        T.cast(T.round(A_shared[i, j0] / B_s_blk[i]), "int32"), 
+                        T.cast(T.round(A_shared[i, j0] / B_s[i]), "int32"), 
                         min_int4, 
                         max_int4
                     ), "int8")
                     q1_ = T.cast(T.clamp(
-                        T.cast(T.round(A_shared[i, j1] / B_s_blk[i]), "int32"),
+                        T.cast(T.round(A_shared[i, j1] / B_s[i]), "int32"),
                         min_int4, 
                         max_int4,
                     ), "int8")
@@ -66,7 +73,7 @@ def tl_quant_i4(M, N, clip_ratio: float):
 
             if tid == 0:
                 for i in T.serial(blk_m):
-                    B_scale[bx * blk_m + i] = B_s_blk[i]
+                    B_scale[bx * blk_m + i] = B_s[i]
 
     return main
 
@@ -81,8 +88,8 @@ def quantize_int4(x: torch.Tensor):
     quantized_x = quad.ops.sym_quant_int4(x, scales_x).to(torch.int8)
     return quantized_x, scales_x.view(-1)
 
-def test_packi4(M = 2048, N = 3584):
-    program = tl_quant_i4(T.symbolic("m"), N, 1.0)
+def test_packi4(M = 4096, N = 3584):  # 3584, 18944
+    program = tl_quant_i4(T.symbolic("m"), N, 1.0, [N + 64, 1])
     kernel = tilelang.compile(program, out_idx=[1, 2], target="cuda", execution_backend="cython")
     kernel_source = kernel.get_kernel_source()
     print(kernel_source)
@@ -90,12 +97,12 @@ def test_packi4(M = 2048, N = 3584):
     def ref_program(x):
         return quantize_int4(x)
     
-    x = torch.randn((M, N), dtype=torch.float16, device="cuda")
-    x_quant, x_scale = kernel(x)
+    x = torch.randn((M, N + 64), dtype=torch.float16, device="cuda")
+    x_quant, x_scale = kernel(x[..., 64:])
     print(x_quant)
     print(x_scale)
         
-    x_quant_ref, x_scale_ref = ref_program(x)
+    x_quant_ref, x_scale_ref = ref_program(x[..., 64:])
     print(x_quant_ref)
     print(x_scale_ref)
         

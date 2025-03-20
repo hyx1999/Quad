@@ -57,13 +57,10 @@ def module_benchmark(module):
 
 def get_model_quantized(config_name):
     config: QuadQwen2Config = QuadQwen2Config.from_pretrained(config_name)
-    model = QuadQwen2ForCausalLM.from_pretrained(
-        config_name, 
-        config=config,
-        attn_implementation="flash_attention_2",
-        torch_dtype=torch.float16,
-        trust_remote_code=True,
-    )
+    config._attn_implementation = "flash_attention_2"
+    with transformers.modeling_utils.no_init_weights():
+        model = QuadQwen2ForCausalLM(config=config)
+        model.half()
     for name, buffer in model.named_buffers():
         if buffer.dtype == torch.uint8:
             buffer.data = buffer.data.to(torch.int8)
@@ -167,13 +164,13 @@ def benchmark(args):
             print(f"E2E FP16 time: {np.mean(time_e2e_f16):.3f} +- {1.96 * np.std(time_e2e_f16):.3f}ms")
             print(f"Speedup: {np.mean(time_e2e_f16) / np.mean(time_e2e_i4):.3f}x")
             print(f'E2E & {hf_config_name} & {args.batch_size} & {args.prefill_seq_len} & {args.decode_steps} & {np.mean(time_e2e_f16):.3f} & {np.mean(time_e2e_i4):.3f}\\\\')
-        
-        # table-style output
+            
+            # table-style output
 
-        print(f"Int4 memory: {np.mean(mem_i4) / (1024 * 1024 * 1024):.3f}GB +- {1.96 * np.std(mem_i4):.3f}")
-        print(f"FP16 memory: {np.mean(mem_f16) / (1024 * 1024 * 1024):.3f}GB +- {1.96 * np.std(mem_f16):.3f}")
-        print(f"Memory saving: {np.mean(mem_f16) / np.mean(mem_i4):.3f}x")
-        print(f'Memory saving & {hf_config_name} & {args.batch_size} & {args.prefill_seq_len} & {args.decode_steps} & {np.mean(mem_i4) / (1024 * 1024 * 1024):.3f}GB & {np.mean(mem_f16) / (1024 * 1024 * 1024):.3f}GB\\\\')
+            print(f"Int4 memory: {np.mean(mem_i4) / (1024 * 1024 * 1024):.3f}GB +- {1.96 * np.std(mem_i4):.3f}")
+            print(f"FP16 memory: {np.mean(mem_f16) / (1024 * 1024 * 1024):.3f}GB +- {1.96 * np.std(mem_f16):.3f}")
+            print(f"Memory saving: {np.mean(mem_f16) / np.mean(mem_i4):.3f}x")
+            print(f'Memory saving & {hf_config_name} & {args.batch_size} & {args.prefill_seq_len} & {args.decode_steps} & {np.mean(mem_i4) / (1024 * 1024 * 1024):.3f}GB & {np.mean(mem_f16) / (1024 * 1024 * 1024):.3f}GB\\\\')
         
         print('--------------')
 
@@ -183,7 +180,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--batch_size', type=int,
         help='Batch size',
-        default=8,
+        default=1,
     )
     parser.add_argument(
         '--prefill_seq_len', type=int,
@@ -193,7 +190,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--decode_steps', type=int,
         help='Decode steps',
-        default=1,
+        default=None,
     )
     
     args = parser.parse_args()
