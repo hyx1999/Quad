@@ -1,7 +1,7 @@
 # QUAD
 
 <p align="center">
-| <a href="https://arxiv.org/pdf/2503.19353"><b>Paper</b></a>
+| <a href="https://arxiv.org/pdf/2503.19353"><b>Paper</b></a> |
 </p>
 
 <!-- ---
