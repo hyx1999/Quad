@@ -1,13 +1,13 @@
 # QUAD
 
-<!-- <p align="center">
-| <a href="https://arxiv.org/abs/2411.10666"><b>Paper</b></a>
-</p> -->
+<p align="center">
+| <a href="https://arxiv.org/pdf/2503.19353"><b>Paper</b></a>
+</p>
 
 <!-- ---
 
 *News* 🔥
-- [2025/4] QUAD is now available on [arXiv](https://arxiv.org/abs/2411.10666).
+- [2025/4] QUAD is now available on [arXiv](https://arxiv.org/pdf/2503.19353).
 
 --- -->
 
