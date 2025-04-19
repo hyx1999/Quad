@@ -6,12 +6,6 @@ import quad_cuda
 from torch.nn.parameter import Parameter
 from typing import Optional
 import quad
-from quad.ops import (
-    get_fuse_w4a4_w16a16_matmul_kernel,
-    get_fuse_w4a8_w16a16_matmul_kernel,
-    get_w4a4_matmul_kernel,
-    get_w4a8_matmul_kernel,
-)
 
 class QuantLinearW4A4Tl(torch.nn.Module):
     __constants__ = ["in_features", "out_features"]
