@@ -10,10 +10,5 @@ from .quant import (
     sym_dequant_weight,
 )
 from .utils import flatten_last_dim_and_return_shape
-
-from .matmul_w4a4_tl import get_w4a4_matmul_kernel
-from .matmul_w4a4_w16a16_tl import get_fuse_w4a4_w16a16_matmul_kernel
-from .matmul_w4a8_tl import get_w4a8_matmul_kernel
-from .matmul_w4a8_w16a16_tl import get_fuse_w4a8_w16a16_matmul_kernel
 from .rmsnorm_tl import get_rmsnorm_fuse_quant_kernel
 from .quant_tl import get_quant_i4_kernel, get_quant_i8_kernel
