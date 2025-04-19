@@ -37,7 +37,7 @@ def cali_flat_quant(args, model, dataloader, dev, logger):
 
     # catch the first layer input
     inps = torch.zeros(
-        (args.nsamples, model.seqlen, model.config.hidden_size), dtype=dtype, device=dev
+        (args.nsamples, model.seqlen, model.config.hidden_size + args.pod_rank), dtype=dtype, device=dev
     )
     cache = {"i": 0}
     class Catcher(nn.Module):
@@ -163,8 +163,6 @@ def cali_flat_quant(args, model, dataloader, dev, logger):
                 param.data = param.to(dtype_dict[name])
         del layer
         torch.cuda.empty_cache()
-        print("DEBUG FINISH...")
-        exit(0)
 
     del inps, fp_inps, fp_outs
     gc.collect()

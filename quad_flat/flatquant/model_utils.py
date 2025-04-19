@@ -17,7 +17,7 @@ def skip_initialization():
 def get_llama(model_name, hf_token):
     skip_initialization()
     config = transformers.LlamaConfig.from_pretrained(model_name)
-    config._attn_implementation_internal = "eager"
+    # config._attn_implementation_internal = "eager"
     model = transformers.LlamaForCausalLM.from_pretrained(model_name,
                                                           torch_dtype='auto',
                                                           config=config,
@@ -31,7 +31,7 @@ def get_llama(model_name, hf_token):
 def get_llama_31(model_name, hf_token):
     skip_initialization()
     config = transformers.LlamaConfig.from_pretrained(model_name)
-    config._attn_implementation_internal = "eager"
+    # config._attn_implementation_internal = "eager"
     model = transformers.LlamaForCausalLM.from_pretrained(model_name,
                                                           torch_dtype='auto',
                                                           config=config,
@@ -51,7 +51,7 @@ def get_qwen2(model_name, hf_token):
         raise ImportError("Qwen2 model is not available. Ensure you're using a compatible version of the 'transformers' library.")
 
     config = transformers.Qwen2Config.from_pretrained(model_name)
-    config._attn_implementation_internal = "eager"
+    # config._attn_implementation_internal = "eager"
     model = Qwen2ForCausalLM.from_pretrained(model_name,
                                                           torch_dtype='auto',
                                                           config=config,

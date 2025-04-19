@@ -10,6 +10,7 @@ class FlatQuantizedLinear(nn.Module):
         super(FlatQuantizedLinear, self).__init__()
         self.args = args
         self.linear = linear
+        self.pod_rank = linear.pod_rank
 
         self.weight_quantizer = WeightQuantizer()
         self.weight_quantizer.configure(args.w_bits, perchannel=True, sym=not(args.w_asym), mse=False)
@@ -44,6 +45,9 @@ class FlatQuantizedLinear(nn.Module):
 
     def _train_forward(self, hidden_states, qa_trans=None, out_trans=None):
         weight = self.linear.weight.data
+        if self.pod_rank > 0:
+            weight_full = weight[:, :self.pod_rank]
+            weight = weight[:, self.pod_rank:]
         # quantization-adaptive transform
         if qa_trans is not None:
             weight = self.apply_trans(weight, qa_trans)
@@ -56,6 +60,8 @@ class FlatQuantizedLinear(nn.Module):
         # quantize weight
         self.weight_quantizer.find_params(weight)
         weight = self.weight_quantizer(weight)
+        if self.pod_rank > 0:
+            weight = torch.cat((weight_full, weight), dim=1)
         # quantize activation
         hidden_states = self.act_quantizer(hidden_states)
 
@@ -83,6 +89,9 @@ class FlatQuantizedLinear(nn.Module):
         weight = self.linear.weight.data
         ori_dtype = weight.dtype
         weight = weight.to(torch.float64)
+        if self.pod_rank > 0:
+            weight_full = weight[:, :self.pod_rank]
+            weight = weight[:, self.pod_rank:]
         # quantization-adaptive transform
         if qa_trans is not None:
             weight = self.apply_trans(weight, qa_trans)
@@ -92,7 +101,7 @@ class FlatQuantizedLinear(nn.Module):
             weight = out_trans(weight.T).T
         if out_trans is not None and self.linear.bias is not None:
             self.linear.bias.data = out_trans(self.linear.bias.data)
-        
+        if self.pod_rank > 0:
+            weight = torch.cat((weight_full, weight), dim=1)       
         self.linear.weight.data = weight.to(ori_dtype)
         self._eval_mode = True
-

@@ -1,3 +1,5 @@
+import logging
+import os
 import gc
 import torch
 import torch.nn as nn
@@ -8,11 +10,22 @@ from transformers.models.llama.modeling_llama import LlamaForCausalLM, LlamaRMSN
 from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM, Qwen2RMSNorm
 
 from collections import defaultdict
-from fast_hadamard_transform import hadamard_transform
 from typing import List, Tuple, Dict, Union, Optional
 from .data_utils import get_loaders
 from . import utils
 from . import model_utils
+from . import hadamard_utils
+
+def load_rotate_matrix(args, path=None):
+    if path is None:
+        Q = torch.load(os.path.join(args.exp_dir, f"rotate_matrix.pth"))
+    else:
+        Q = torch.load(os.path.join(path, f"rotate_matrix.pth"))
+    return Q
+
+def save_rotate_matrix(args, Q):
+    torch.save(Q, os.path.join(args.exp_dir, f"rotate_matrix.pth"))
+    logging.info("saved paramaters at {}".format(os.path.join(args.exp_dir, f"rotate_matrix.pth")))
 
 
 def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: typing.Iterable[torch.nn.Linear]) -> None:
@@ -57,7 +70,7 @@ def fuse_layer_norms(model):
 
     fuse_ln_linear(model_utils.get_pre_head_layernorm(model), [model_utils.get_lm_head(model)])
     
-def decompose_embeddings(model, Q: torch.Tensor, pod_rank: int) -> None:
+def project_embeddings(model, Q: torch.Tensor, pod_rank: int) -> None:
     # Rotate the embeddings.
     for W in model_utils.get_embeddings(model):
         assert isinstance(W, nn.Embedding)
@@ -66,53 +79,53 @@ def decompose_embeddings(model, Q: torch.Tensor, pod_rank: int) -> None:
         W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
         W.embedding_dim += pod_rank
     
-def decompose_attention_inputs(model, layer, Q, pod_rank: int) -> None:
+def project_attention_inputs(model, layer, Q, pod_rank: int) -> None:
     # Rotate the WQ, WK and WV matrices of the self-attention layer.
     for W in model_utils.get_qkv_linears(model, layer)[1]:
         assert isinstance(W, nn.Linear)
         dtype = W.weight.dtype
         W_ = W.weight.to(device=utils.DEV, dtype=torch.float64)
-        W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
+        W.weight.data = torch.matmul(W_, Q).to(dtype=dtype)
         W.in_features += pod_rank
         W.pod_rank = pod_rank
 
-def decompose_attention_output(model, layer, Q, pod_rank: int) -> None:
+def project_attention_output(model, layer, Q, pod_rank: int) -> None:
     # Rotate output matrix of the self-attention layer.
     for W in model_utils.get_o_linears(model, layer)[1]:
         assert isinstance(W, nn.Linear)
         dtype = W.weight.data.dtype
         W_ = W.weight.data.to(device=utils.DEV, dtype=torch.float64)
-        W.weight.data = torch.matmul(Q.T, W_).to(device="cpu", dtype=dtype)
+        W.weight.data = torch.matmul(Q.T, W_).to(dtype=dtype)
         W.out_features += pod_rank
         W.pod_rank = 0
         if W.bias is not None:
             b = W.bias.data.to(device=utils.DEV, dtype=torch.float64)
-            W.bias.data = torch.matmul(Q.T, b).to(device="cpu", dtype=dtype)
+            W.bias.data = torch.matmul(Q.T, b).to(dtype=dtype)
 
-def decompose_mlp_input(model, layer, Q, pod_rank: int):
+def project_mlp_input(model, layer, Q, pod_rank: int):
     # Rotate the MLP input weights.
     for W in model_utils.get_gate_up_linears(model, layer)[1]:
         assert isinstance(W, nn.Linear)
         dtype = W.weight.dtype
         W_ = W.weight.data.to(device=utils.DEV, dtype=torch.float64)
-        W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
+        W.weight.data = torch.matmul(W_, Q).to(dtype=dtype)
         W.in_features += pod_rank
         W.pod_rank = pod_rank
     
-def decompose_mlp_output(model, layer, Q, pod_rank: int):
+def project_mlp_output(model, layer, Q, pod_rank: int):
     # Rotate the MLP output weights and bias.
     for W in model_utils.get_down_linears(model, layer)[1]:
         assert isinstance(W, nn.Linear)
         dtype = W.weight.data.dtype
         W_ = W.weight.data.to(device=utils.DEV, dtype=torch.float64)
-        W.weight.data = torch.matmul(Q.T, W_).to(device="cpu", dtype=dtype)
+        W.weight.data = torch.matmul(Q.T, W_).to(dtype=dtype)
         W.out_features += pod_rank
         W.pod_rank = 0
         if W.bias is not None:
             b = W.bias.data.to(device=utils.DEV, dtype=torch.float64)
-            W.bias.data = torch.matmul(Q.T, b).to(device="cpu", dtype=dtype)
+            W.bias.data = torch.matmul(Q.T, b).to(dtype=dtype)
 
-def decompose_head(model, Q: torch.Tensor, pod_rank: int) -> None:
+def project_head(model, Q: torch.Tensor, pod_rank: int) -> None:
     # Rotate the head.
     W = model_utils.get_lm_head(model)
     assert isinstance(W, nn.Linear)
@@ -135,59 +148,76 @@ def get_named_layernorm(layer):
         if isinstance(m, (LlamaRMSNorm, Qwen2RMSNorm))}
 
 @torch.no_grad()
-def get_projection_matrix(args, model, samples):
-    hidden_dim = model.config.hidden_size
+def get_projection_matrix(args, model, dataloader):
+    use_cache = model.config.use_cache
+    model.config.use_cache = False
+    dev = utils.DEV
+    dtype = next(model.parameters()).dtype
+
+    # move embedding layer and first layer to target device
     layers = model.model.layers
+    layers[0] = layers[0].to(dev)
+    model.model.embed_tokens = model.model.embed_tokens.to(dev)
+    if hasattr(model.model, "rotary_emb"):
+        model.model.rotary_emb = model.model.rotary_emb.to(dev)
 
-    samples = torch.cat([x[0] for x in samples], dim=0)
+    nsamples = 32
+    seqlen = 512
 
-    inps = []
-    layer_kwargs = {}
-
-    layers[0] = layers[0].to(utils.DEV)
-    move_embeddings(model, utils.DEV)
-    move_rotary_embeddings(model, utils.DEV)
-    # get input and kwargs to layer 0
-    # with_kwargs is only supported in PyTorch 2.0
-    # use this Catcher hack for now
+    # catch the first layer input
+    inps = torch.zeros(
+        (nsamples, seqlen, model.config.hidden_size), dtype=dtype, device=dev
+    )
+    cache = {"i": 0}
     class Catcher(nn.Module):
         def __init__(self, module):
             super().__init__()
             self.module = module
 
         def forward(self, inp, **kwargs):
-            inps.append(inp)
-            layer_kwargs.update(kwargs)
-            raise ValueError  # early exit to break later inference
-
-    # patch layer 0 to catch input and kwargs
+            inps[cache["i"]] = inp
+            cache["i"] += 1
+            cache["attention_mask"] = kwargs["attention_mask"]
+            cache["position_ids"] = kwargs["position_ids"]
+            raise ValueError
     layers[0] = Catcher(layers[0])
-    try:
-        model(samples.to(next(model.parameters()).device))
-    except ValueError:  # work with early exit
-        pass
-    del samples
-    layers[0] = layers[0].module  # restore
-    inps = inps[0]
-
+    for batch in dataloader:
+        if cache["i"] >= nsamples:
+            break
+        try:
+            sample = batch[0]
+            model(sample.to(dev)[:, :seqlen])
+        except ValueError:
+            pass
+    position_ids = cache["position_ids"]
+    attention_mask = cache["attention_mask"]
+    
+    # move embedding layer and first layer to cpu
+    layers[0] = layers[0].module
     layers[0] = layers[0].cpu()
-    move_embeddings(model, "cpu")
-    move_rotary_embeddings(model, "cpu")
+    model.model.embed_tokens = model.model.embed_tokens.cpu()
+    if hasattr(model.model, "rotary_emb"):
+        model.model.rotary_emb = model.model.rotary_emb.cpu()
+    # raise ValueError("Only support for llama-2/Llama-3/qwen-2 now")
+    torch.cuda.empty_cache()
+
+    fp_inps = inps   # take output of fp model as input
+    fp_outs = torch.zeros_like(inps)   # take output of fp model as input
 
     gc.collect()
     torch.cuda.empty_cache()
-
+        
     feat_dict = {"x": None, "cnt": None}
     # solve layer by layer
     for i in tqdm.tqdm(range(len(layers)), desc="POD calibration..."):
         layer = layers[i]
-        layer = layer.cuda()
+        layer = layer.to(utils.DEV)
         named_norms = get_named_layernorm(layer)
 
         # firstly, get input features of all linear layers
         def cache_input_hook(m, x, y, name, feat_dict):
             x: torch.Tensor = x[0]
-            x = x.view(-1, hidden_dim)
+            x = x.view(-1, x.shape[-1])
             x = x.to(torch.float64)
             x = (x.T @ x).detach().cpu()
             if feat_dict["x"] is None:
@@ -204,14 +234,13 @@ def get_projection_matrix(args, model, samples):
                     functools.partial(cache_input_hook, name=name, feat_dict=feat_dict)
                 )
             )
-        inps = inps.to(next(layer.parameters()).device)  # in case multi-gpu
         # get output as next layer's input
-        inps = layer(inps, **layer_kwargs)[0]
+        fp_outs = layer(fp_inps, attention_mask=attention_mask, position_ids=position_ids)[0]
+        fp_outs, fp_inps = fp_inps, fp_outs
         for h in handles:
             h.remove()
 
-        layer = layer.cpu()
-        # Haotian: check activation replacement
+        layer.cpu()
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -221,29 +250,81 @@ def get_projection_matrix(args, model, samples):
     P = U[:, :args.pod_rank]
     R = torch.eye(U.shape[0]).type_as(U) - P @ P.T
     Q = torch.cat((P, R), dim=1)
+    model.config.use_cache = use_cache
     return Q
 
 
+def random_orthogonal_matrix(size, device):
+    """
+    Generate a random orthogonal matrix of the specified size.
+    First, we generate a random matrix with entries from a standard distribution.
+    Then, we use QR decomposition to obtain an orthogonal matrix.
+    Finally, we multiply by a diagonal matrix with diag r to adjust the signs.
+    
+    Args:
+    size (int): The size of the matrix (size x size).
+    
+    Returns:
+    torch.Tensor: An orthogonal matrix of the specified size.
+    """
+    torch.cuda.empty_cache()
+    random_matrix = torch.randn(size, size, dtype=torch.float64).to(device)
+    q, r = torch.linalg.qr(random_matrix)
+    q *= torch.sign(torch.diag(r)).unsqueeze(0)
+    return q
+
+
+def get_orthogonal_matrix(size, pod_rank, mode="hadamard", device=utils.DEV):
+    if mode == 'random':
+        if pod_rank > 0:
+            Q0 = torch.eye(pod_rank, dtype=torch.float64, device=device)
+        else:
+            Q0 = torch.randn(0, 0, device=device, dtype=torch.float64)
+        Q1 = random_orthogonal_matrix(size, device)
+        # return Q1
+        return torch.block_diag(Q0, Q1)
+    elif mode == 'hadamard':
+        if pod_rank > 0:
+            Q0 = torch.eye(pod_rank, dtype=torch.float64, device=device)
+        else:
+            Q0 = torch.randn(0, 0, device=device, dtype=torch.float64)
+        Q1 = hadamard_utils.random_hadamard_matrix(size, device)
+        # return Q1
+        return torch.block_diag(Q0, Q1)
+    else:
+        raise ValueError(f'Unknown mode {mode}')
+
+
 @torch.no_grad()
-def decompose_model(model, args):
-    fuse_layer_norms(model)
+def decompose_model(args, model, trainloader, P):
 
     if args.pod_rank == 0:
         for layer in model_utils.get_layers(model):
-            for module in layer.named_modules():
+            for name, module in layer.named_modules():
                 if isinstance(module, nn.Linear):
                     module.pod_rank = 0
-        return
+    else:
+        fuse_layer_norms(model)
 
-    Q = get_projection_matrix(model, args)
-    Q = Q.to(utils.DEV, dtype=torch.float64)
+        if P is None:
+            P = get_projection_matrix(args, model, trainloader)
+        Q = get_orthogonal_matrix(model.config.hidden_size, args.pod_rank)
+        P = P.to(utils.DEV, dtype=torch.float64)
+        Q = Q.to(utils.DEV, dtype=torch.float64)
 
-    decompose_embeddings(model, Q, args.pod_rank)
-    decompose_head(model, Q, args.pod_rank)
-    utils.cleanup_memory()
-    layers = model_utils.get_layers(model)
-    for idx, layer in enumerate(tqdm.tqdm(layers, unit="layer", desc="POD...")):
-        decompose_attention_inputs(model, layers[idx], Q, args.pod_rank)
-        decompose_attention_output(model, layers[idx], Q, args.pod_rank)
-        decompose_mlp_input(model, layers[idx], Q, args.pod_rank)
-        decompose_mlp_output(model, layers[idx], Q, args.pod_rank)
+        for i, R in enumerate([P, Q]):
+            project_embeddings(model, R, args.pod_rank)
+            project_head(model, R, args.pod_rank)
+            utils.cleanup_memory()
+            layers = model_utils.get_layers(model)
+            for idx, layer in enumerate(tqdm.tqdm(layers, unit="layer", desc="Projection [{i}]...".format(i))):
+                layer.to(utils.DEV)
+                project_attention_inputs(model, layers[idx], R, args.pod_rank)
+                project_attention_output(model, layers[idx], R, args.pod_rank)
+                project_mlp_input(model, layers[idx], R, args.pod_rank)
+                project_mlp_output(model, layers[idx], R, args.pod_rank)
+                layer.to("cpu")
+        for name, module in model.named_modules():
+            if isinstance(module, (Qwen2RMSNorm, LlamaRMSNorm)):
+                hidden_size = module.weight.shape[-1]
+                module.weight.data = module.weight.data.new_ones((hidden_size + args.pod_rank,))

@@ -33,6 +33,7 @@ class GPTQ:
         self.columns = W.shape[1]
         self.H = torch.zeros((self.columns, self.columns), device=self.dev)
         self.nsamples = 0
+        self.pod_rank = layer.pod_rank
 
     def add_batch(self, inp, out):
         
@@ -54,13 +55,16 @@ class GPTQ:
     ):
         W = self.layer.weight.data.clone()
         W = W.float()
+        
+        if self.pod_rank > 0:
+            W_full, W = W[:, :self.pod_rank], W[:, self.pod_rank:]
 
         tick = time.time()
 
         if not self.quantizer.ready():
             self.quantizer.find_params(W)
 
-        H = self.H
+        H = self.H[self.pod_rank:, self.pod_rank:]
         del self.H
         dead = torch.diag(H) == 0
         H[dead, dead] = 1
@@ -132,8 +136,12 @@ class GPTQ:
 
         if actorder:
             Q = Q[:, invperm]
+        
+        Q = Q.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
+        if self.pod_rank > 0:
+            Q = torch.cat((W_full, Q), dim=1)
 
-        self.layer.weight.data = Q.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
+        self.layer.weight.data = Q
         if torch.any(torch.isnan(self.layer.weight.data)):
             logging.warning('NaN in weights')
             import pprint
@@ -298,9 +306,16 @@ def rtn_fwrd(model, dev, args):
                 layer_weight_bits, perchannel=True, sym=not(args.w_asym), mse=args.gptq_mse
             )
             W = subset[name].weight.data
+            pod_rank = subset[name].pod_rank
+            if pod_rank > 0:
+                W_full, W = W[:, :pod_rank], W[:, :pod_rank]
             w_dtype = W.dtype
             quantizer.find_params(W)
-            subset[name].weight.data = quantizer.quantize(W).to(w_dtype)
+            if pod_rank > 0:
+                W = torch.cat(W_full, quantizer.quantize(W).to(w_dtype))
+            else:
+                W = quantizer.quantize(W).to(w_dtype)
+            subset[name].weight.data = W
             quantizers['model.layers.%d.%s' % (i, name)] = quantizer.cpu()
         layers[i] = layer.cpu()
         torch.cuda.empty_cache()

@@ -100,7 +100,8 @@ class SVDDecomposeTransMatrix(nn.Module):
                 matrix_left, matrix_right = self.matrix_left_inv, self.matrix_right_inv
             return kronecker_matmul(inp, matrix_left.to(inp), matrix_right.to(inp))
         matrix_left, matrix_right = matrix_u_left @ torch.diag(linear_diag_left) @ matrix_v_left.t(), matrix_u_right @ torch.diag(linear_diag_right) @ matrix_v_right.t()
-        return kronecker_matmul(inp, matrix_left.to(inp), matrix_right.to(inp))
+        inp = kronecker_matmul(inp, matrix_left.to(inp), matrix_right.to(inp))
+        return inp
 
     def to_eval_mode(self):
         if not self._eval_mode:
@@ -201,7 +202,8 @@ class InvDecomposeTransMatrix(nn.Module):
             matrix_left, matrix_right = self.matrix_left, self.matrix_right
             if inv_t:
                 matrix_left, matrix_right = self.matrix_left_inv, self.matrix_right_inv
-        return kronecker_matmul(inp, matrix_left.to(inp), matrix_right.to(inp))
+        inp = kronecker_matmul(inp, matrix_left.to(inp), matrix_right.to(inp))
+        return inp
 
     def to_eval_mode(self):
         if not self._eval_mode:

@@ -27,10 +27,14 @@ def main():
     logger.info("Finished loading training data.")
 
     if args.quantize:
-        pod_utils.decompose_model(model, args)
+        Q = None
+        if args.reload_matrix:
+            Q = pod_utils.load_rotate_matrix(args, path=args.matrix_path)
+        pod_utils.decompose_model(args, model, trainloader, Q)
+        if args.save_matrix and not args.reload_matrix:
+            pod_utils.save_rotate_matrix(args, Q)
         model = apply_flatquant_to_model(args, model)
         logger.info("Finished applying FlatQuant to model.")
-        exit(0)
         if args.resume:
             flat_utils.load_flat_parameters(args, model)
         elif args.reload_matrix:
@@ -56,7 +60,6 @@ def main():
         model.to(utils.DEV)
     
     # Evaluating PPL
-    model.seqlen = 2048
     for eval_dataset in ["wikitext2"]:
         logger.info(eval_dataset)
         testloader = data_utils.get_loaders(
@@ -71,7 +74,6 @@ def main():
         dataset_ppl = eval_utils.ppl_eval(model, testloader)
         logger.info(dataset_ppl)
 
-
     if args.lm_eval:
         import lm_eval
         from lm_eval import utils as lm_eval_utils
@@ -79,7 +81,8 @@ def main():
 
         hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=args.lm_eval_batch_size)
 
-        task_manager = lm_eval.tasks.TaskManager(include_path="./datasets/lm_eval_configs/tasks", include_defaults=False)
+        # task_manager = lm_eval.tasks.TaskManager(include_path="./datasets/lm_eval_configs/tasks", include_defaults=False)
+        task_manager = lm_eval.tasks.TaskManager()
         task_names = lm_eval_utils.pattern_match(args.tasks, task_manager.all_tasks)
         results = {}
         for task_name in task_names:
