@@ -32,6 +32,7 @@ def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: typing.Iterable[to
     """
     fuse the linear operations in Layernorm into the adjacent linear blocks.
     """
+    # print("norm.weight:", layernorm.weight.abs().mean(), layernorm.weight.abs().max())
     for linear in linear_layers:
         linear_dtype = linear.weight.dtype
 
@@ -50,11 +51,6 @@ def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: typing.Iterable[to
 
 def fuse_layer_norms(model):
     model_utils.untie_word_embedding(model)
-
-    # Embedding fusion
-    for W in model_utils.get_embeddings(model):
-        W_ = W.weight.data.double()
-        W.weight.data = (W_ - W_.mean(dim=-1, keepdim=True)).to(W.weight.data.dtype)
         
     layers = model_utils.get_layers(model)
     
@@ -77,7 +73,7 @@ def project_embeddings(model, Q: torch.Tensor, pod_rank: int) -> None:
         dtype = W.weight.data.dtype
         W_ = W.weight.data.to(device=utils.DEV, dtype=torch.float64)
         W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
-        W.embedding_dim += pod_rank
+        # W.embedding_dim += pod_rank
     
 def project_attention_inputs(model, layer, Q, pod_rank: int) -> None:
     # Rotate the WQ, WK and WV matrices of the self-attention layer.
@@ -86,7 +82,7 @@ def project_attention_inputs(model, layer, Q, pod_rank: int) -> None:
         dtype = W.weight.dtype
         W_ = W.weight.to(device=utils.DEV, dtype=torch.float64)
         W.weight.data = torch.matmul(W_, Q).to(dtype=dtype)
-        W.in_features += pod_rank
+        # W.in_features += pod_rank
         W.pod_rank = pod_rank
 
 def project_attention_output(model, layer, Q, pod_rank: int) -> None:
@@ -96,7 +92,7 @@ def project_attention_output(model, layer, Q, pod_rank: int) -> None:
         dtype = W.weight.data.dtype
         W_ = W.weight.data.to(device=utils.DEV, dtype=torch.float64)
         W.weight.data = torch.matmul(Q.T, W_).to(dtype=dtype)
-        W.out_features += pod_rank
+        # W.out_features += pod_rank
         W.pod_rank = 0
         if W.bias is not None:
             b = W.bias.data.to(device=utils.DEV, dtype=torch.float64)
@@ -109,7 +105,7 @@ def project_mlp_input(model, layer, Q, pod_rank: int):
         dtype = W.weight.dtype
         W_ = W.weight.data.to(device=utils.DEV, dtype=torch.float64)
         W.weight.data = torch.matmul(W_, Q).to(dtype=dtype)
-        W.in_features += pod_rank
+        # W.in_features += pod_rank
         W.pod_rank = pod_rank
     
 def project_mlp_output(model, layer, Q, pod_rank: int):
@@ -119,7 +115,7 @@ def project_mlp_output(model, layer, Q, pod_rank: int):
         dtype = W.weight.data.dtype
         W_ = W.weight.data.to(device=utils.DEV, dtype=torch.float64)
         W.weight.data = torch.matmul(Q.T, W_).to(dtype=dtype)
-        W.out_features += pod_rank
+        # W.out_features += pod_rank
         W.pod_rank = 0
         if W.bias is not None:
             b = W.bias.data.to(device=utils.DEV, dtype=torch.float64)
@@ -132,7 +128,7 @@ def project_head(model, Q: torch.Tensor, pod_rank: int) -> None:
     dtype = W.weight.data.dtype
     W_ = W.weight.data.to(device=utils.DEV, dtype=torch.float64)
     W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
-    W.in_features += pod_rank
+    # W.in_features += pod_rank
 
 def move_embeddings(model, device):
     embs = model_utils.get_embeddings(model)
@@ -285,7 +281,7 @@ def get_orthogonal_matrix(size, pod_rank, mode="hadamard", device=utils.DEV):
         return torch.block_diag(Q0, Q1)
     elif mode == 'hadamard':
         if pod_rank > 0:
-            Q0 = torch.eye(pod_rank, dtype=torch.float64, device=device)
+            Q0 = hadamard_utils.random_hadamard_matrix(pod_rank, device=device)
         else:
             Q0 = torch.randn(0, 0, device=device, dtype=torch.float64)
         Q1 = hadamard_utils.random_hadamard_matrix(size, device)
@@ -297,15 +293,12 @@ def get_orthogonal_matrix(size, pod_rank, mode="hadamard", device=utils.DEV):
 
 @torch.no_grad()
 def decompose_model(args, model, trainloader, P):
-
     if args.pod_rank == 0:
         for layer in model_utils.get_layers(model):
             for name, module in layer.named_modules():
                 if isinstance(module, nn.Linear):
                     module.pod_rank = 0
     else:
-        fuse_layer_norms(model)
-
         if P is None:
             P = get_projection_matrix(args, model, trainloader)
         Q = get_orthogonal_matrix(model.config.hidden_size, args.pod_rank)
@@ -317,7 +310,7 @@ def decompose_model(args, model, trainloader, P):
             project_head(model, R, args.pod_rank)
             utils.cleanup_memory()
             layers = model_utils.get_layers(model)
-            for idx, layer in enumerate(tqdm.tqdm(layers, unit="layer", desc="Projection [{i}]...".format(i))):
+            for idx, layer in tqdm.tqdm(enumerate(layers), unit="layer", desc="Projection [{}]...".format(i)):
                 layer.to(utils.DEV)
                 project_attention_inputs(model, layers[idx], R, args.pod_rank)
                 project_attention_output(model, layers[idx], R, args.pod_rank)

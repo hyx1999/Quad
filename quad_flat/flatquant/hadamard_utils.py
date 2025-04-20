@@ -49,8 +49,13 @@ def get_hadK(n, transpose=False):
         K = 12
         hadK = get_had12().T if transpose else get_had12()
     else:
-        assert (is_pow2(n))
-        K = 1
+        if is_pow2(n):
+            K = 1
+        else:
+            K = n
+            while K % 2 == 0:
+                K /= 2
+            hadK = torch.eye(K, dtype=torch.float)
 
     return hadK, K
 

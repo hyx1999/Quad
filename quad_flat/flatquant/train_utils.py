@@ -25,7 +25,8 @@ def cali_flat_quant(args, model, dataloader, dev, logger):
         dtype = torch.float32
         traincast = nullcontext
     else:
-        dtype = torch.float16 if isinstance(model, transformers.LlamaForCausalLM) else torch.bfloat16
+        # dtype = torch.float16 if isinstance(model, transformers.LlamaForCausalLM) else torch.bfloat16
+        dtype = torch.bfloat16
         traincast = functools.partial(torch.amp.autocast, device_type="cuda", dtype=dtype)
 
     # move embedding layer and first layer to target device
@@ -100,6 +101,7 @@ def cali_flat_quant(args, model, dataloader, dev, logger):
         with torch.no_grad():
             for j in range(args.nsamples):
                 fp_outs[j] = layer(fp_inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+
         layer.self_attn._ori_mode = False
         layer.mlp._ori_mode = False
         if args.diag_init == "sq_style":
@@ -151,7 +153,6 @@ def cali_flat_quant(args, model, dataloader, dev, logger):
                     scheduler.step()
             cur_lr = optimizer.state_dict()['param_groups'][0]['lr']
             logger.info(f"layer {i} lwc lac iter {epoch}, lr {cur_lr:.8f}  time {time.time() - start_tick:.6f}s, mse: {mse:.8f}" )
-
         fp_inps, fp_outs = fp_outs, fp_inps
         layers[i] = layer.to("cpu")
         flat_parameters[i] = get_paras_dict_by_name(layer, required_names=paras_name)

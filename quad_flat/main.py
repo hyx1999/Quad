@@ -27,6 +27,7 @@ def main():
     logger.info("Finished loading training data.")
 
     if args.quantize:
+        pod_utils.fuse_layer_norms(model)
         Q = None
         if args.reload_matrix:
             Q = pod_utils.load_rotate_matrix(args, path=args.matrix_path)
@@ -59,6 +60,7 @@ def main():
     else:
         model.to(utils.DEV)
     
+    model.config.pod_rank = args.pod_rank
     # Evaluating PPL
     for eval_dataset in ["wikitext2"]:
         logger.info(eval_dataset)
@@ -73,6 +75,7 @@ def main():
             )
         dataset_ppl = eval_utils.ppl_eval(model, testloader)
         logger.info(dataset_ppl)
+        print("dataset_ppl:", dataset_ppl)
 
     if args.lm_eval:
         import lm_eval
@@ -95,6 +98,7 @@ def main():
         metric_vals = {task: result for task, result in results.items()}
         metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 2)
         logger.info(metric_vals)
+        print(metric_vals)
 
 
 if __name__ == '__main__':

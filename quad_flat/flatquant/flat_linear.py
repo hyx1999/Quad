@@ -10,7 +10,7 @@ class FlatQuantizedLinear(nn.Module):
         super(FlatQuantizedLinear, self).__init__()
         self.args = args
         self.linear = linear
-        self.pod_rank = linear.pod_rank
+        self.pod_size = linear.pod_rank
 
         self.weight_quantizer = WeightQuantizer()
         self.weight_quantizer.configure(args.w_bits, perchannel=True, sym=not(args.w_asym), mse=False)
@@ -45,9 +45,7 @@ class FlatQuantizedLinear(nn.Module):
 
     def _train_forward(self, hidden_states, qa_trans=None, out_trans=None):
         weight = self.linear.weight.data
-        if self.pod_rank > 0:
-            weight_full = weight[:, :self.pod_rank]
-            weight = weight[:, self.pod_rank:]
+        weight_full, weight = weight[:, :self.pod_size], weight[:, self.pod_size:]
         # quantization-adaptive transform
         if qa_trans is not None:
             weight = self.apply_trans(weight, qa_trans)
@@ -56,14 +54,16 @@ class FlatQuantizedLinear(nn.Module):
             weight = self.apply_wclip(weight)
         if out_trans is not None:
             weight = out_trans(weight.T).T
+        if out_trans is not None and self.pod_size > 0:
+            weight_full = out_trans(weight_full.T).T
         
         # quantize weight
         self.weight_quantizer.find_params(weight)
         weight = self.weight_quantizer(weight)
-        if self.pod_rank > 0:
-            weight = torch.cat((weight_full, weight), dim=1)
-        # quantize activation
-        hidden_states = self.act_quantizer(hidden_states)
+        weight = torch.cat((weight_full, weight), dim=1)
+        # quantize activation            
+        hidden_states = torch.cat(
+            (hidden_states[..., :self.pod_size], self.act_quantizer(hidden_states[..., self.pod_size:])), dim=-1)
 
         if out_trans is not None and self.linear.bias is not None:
             bias = out_trans(self.linear.bias.data)
@@ -80,8 +80,9 @@ class FlatQuantizedLinear(nn.Module):
 
     def _eval_forward(self, hidden_states):
         x_dtype = hidden_states.dtype
-        hidden_states = self.act_quantizer(hidden_states).to(x_dtype)
-
+        # hidden_states = self.act_quantizer(hidden_states).to(x_dtype)
+        hidden_states = torch.cat(
+            (hidden_states[..., :self.pod_size], self.act_quantizer(hidden_states[..., self.pod_size:]).to(x_dtype)), dim=-1)
         output = self.linear(hidden_states)
         return output
 
@@ -89,9 +90,7 @@ class FlatQuantizedLinear(nn.Module):
         weight = self.linear.weight.data
         ori_dtype = weight.dtype
         weight = weight.to(torch.float64)
-        if self.pod_rank > 0:
-            weight_full = weight[:, :self.pod_rank]
-            weight = weight[:, self.pod_rank:]
+        weight_full, weight = weight[:, :self.pod_size], weight[:, self.pod_size:]
         # quantization-adaptive transform
         if qa_trans is not None:
             weight = self.apply_trans(weight, qa_trans)
@@ -99,9 +98,10 @@ class FlatQuantizedLinear(nn.Module):
             weight = self.apply_wclip(weight)
         if out_trans is not None:
             weight = out_trans(weight.T).T
+        if out_trans is not None and self.pod_size > 0:
+            weight_full = out_trans(weight_full.T).T
         if out_trans is not None and self.linear.bias is not None:
             self.linear.bias.data = out_trans(self.linear.bias.data)
-        if self.pod_rank > 0:
-            weight = torch.cat((weight_full, weight), dim=1)       
+        weight = torch.cat((weight_full, weight), dim=1)       
         self.linear.weight.data = weight.to(ori_dtype)
         self._eval_mode = True

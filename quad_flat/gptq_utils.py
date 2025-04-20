@@ -28,12 +28,12 @@ class GPTQ:
     def __init__(self, layer):
         self.layer = layer
         self.dev = self.layer.weight.device
+        self.pod_rank = layer.pod_rank
         W = layer.weight.data.clone()
         self.rows = W.shape[0]
-        self.columns = W.shape[1]
+        self.columns = W.shape[1] - self.pod_rank
         self.H = torch.zeros((self.columns, self.columns), device=self.dev)
         self.nsamples = 0
-        self.pod_rank = layer.pod_rank
 
     def add_batch(self, inp, out):
         
@@ -48,6 +48,7 @@ class GPTQ:
         # inp = inp.float()
         inp = math.sqrt(2 / self.nsamples) * inp.float()
         # self.H += 2 / self.nsamples * inp.matmul(inp.t())
+        inp = inp[self.pod_rank:, :]
         self.H += inp.matmul(inp.t())
 
     def fasterquant(
@@ -56,15 +57,12 @@ class GPTQ:
         W = self.layer.weight.data.clone()
         W = W.float()
         
-        if self.pod_rank > 0:
-            W_full, W = W[:, :self.pod_rank], W[:, self.pod_rank:]
-
-        tick = time.time()
+        W_full, W = W[:, :self.pod_rank], W[:, self.pod_rank:]
 
         if not self.quantizer.ready():
             self.quantizer.find_params(W)
 
-        H = self.H[self.pod_rank:, self.pod_rank:]
+        H = self.H
         del self.H
         dead = torch.diag(H) == 0
         H[dead, dead] = 1
@@ -137,9 +135,8 @@ class GPTQ:
         if actorder:
             Q = Q[:, invperm]
         
-        Q = Q.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
-        if self.pod_rank > 0:
-            Q = torch.cat((W_full, Q), dim=1)
+        Q = Q.reshape((self.rows, self.columns))
+        Q = torch.cat((W_full, Q), dim=1).to(self.layer.weight.data.dtype)
 
         self.layer.weight.data = Q
         if torch.any(torch.isnan(self.layer.weight.data)):
@@ -154,8 +151,8 @@ class GPTQ:
         self.Trace = None
         torch.cuda.empty_cache()
         cleanup_memory(verbose=False)
-        
-        
+
+
 @torch.no_grad()
 def gptq_fwrd(model, dataloader, dev, args):
     '''
@@ -176,7 +173,7 @@ def gptq_fwrd(model, dataloader, dev, args):
 
     dtype = next(iter(model.parameters())).dtype
     inps = torch.zeros(
-        (args.nsamples, model.seqlen, model.config.hidden_size), dtype=dtype, device=dev
+        (args.nsamples, model.seqlen, model.config.hidden_size + args.pod_rank), dtype=dtype, device=dev
     )
     cache = {'i': 0, 'attention_mask': None}
 
@@ -292,8 +289,7 @@ def rtn_fwrd(model, dev, args):
     for i in tqdm.tqdm(range(len(layers)), desc="(RtN Quant.) Layers"):
         layer = layers[i].to(dev)
 
-        subset = find_qlayers(layer,
-                                            layers=[torch.nn.Linear])
+        subset = find_qlayers(layer, layers=[torch.nn.Linear])
 
         for name in subset:
             layer_weight_bits = args.w_bits
@@ -307,19 +303,15 @@ def rtn_fwrd(model, dev, args):
             )
             W = subset[name].weight.data
             pod_rank = subset[name].pod_rank
-            if pod_rank > 0:
-                W_full, W = W[:, :pod_rank], W[:, :pod_rank]
+            W_full, W = W[:, :pod_rank], W[:, pod_rank:]
             w_dtype = W.dtype
             quantizer.find_params(W)
-            if pod_rank > 0:
-                W = torch.cat(W_full, quantizer.quantize(W).to(w_dtype))
-            else:
-                W = quantizer.quantize(W).to(w_dtype)
+            W = torch.cat((W_full, quantizer.quantize(W).to(w_dtype)), dim=1)
             subset[name].weight.data = W
             quantizers['model.layers.%d.%s' % (i, name)] = quantizer.cpu()
         layers[i] = layer.cpu()
         torch.cuda.empty_cache()
         del layer
-            
+
     cleanup_memory(verbose=True)
     return quantizers
