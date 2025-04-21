@@ -46,6 +46,6 @@ Example script for evaluating speedup of the quantized model can be found in `sc
 
 ## Acknowledgement
 
-This project is partially based on [QuaRot](https://github.com/spcl/QuaRot).
+This project is partially based on [QuaRot](https://github.com/spcl/QuaRot) and [FlatQuant](https://github.com/ruikangliu/FlatQuant).
 
 The project utilizes CUDA kernels developed on [CUTLASS](https://github.com/NVIDIA/cutlass/tree/main) and [Tilelang](https://github.com/tile-ai/tilelang).
