@@ -1,5 +1,6 @@
+import os
+import torch
 import transformers
-
 import flatquant.utils as utils
 import flatquant.args_utils as args_utils
 import flatquant.model_utils as model_utils
@@ -28,12 +29,7 @@ def main():
 
     if args.quantize:
         pod_utils.fuse_layer_norms(model)
-        Q = None
-        if args.reload_matrix:
-            Q = pod_utils.load_rotate_matrix(args, path=args.matrix_path)
-        pod_utils.decompose_model(args, model, trainloader, Q)
-        if args.save_matrix and not args.reload_matrix:
-            pod_utils.save_rotate_matrix(args, Q)
+        pod_utils.decompose_model(args, model, trainloader)
         model = apply_flatquant_to_model(args, model)
         logger.info("Finished applying FlatQuant to model.")
         if args.resume:
@@ -54,6 +50,8 @@ def main():
         else: # RTN Weight Quantization
             quantizers = gptq_utils.rtn_fwrd(model, utils.DEV, args)
         save_dict["w_quantizers"] = quantizers
+        if args.save_matrix:
+            torch.save(model.state_dict(), os.path.join(args.exp_dir, "model.ckpt"))
 
     if args.distribute_model:
         utils.distribute_model(model)

@@ -157,8 +157,9 @@ def get_projection_matrix(args, model, dataloader):
     if hasattr(model.model, "rotary_emb"):
         model.model.rotary_emb = model.model.rotary_emb.to(dev)
 
-    nsamples = 32
-    seqlen = 512
+    batch_size = 32
+    nsamples = args.nsamples
+    seqlen = min(512, model.seqlen)
 
     # catch the first layer input
     inps = torch.zeros(
@@ -214,15 +215,16 @@ def get_projection_matrix(args, model, dataloader):
         def cache_input_hook(m, x, y, name, feat_dict):
             x: torch.Tensor = x[0]
             x = x.view(-1, x.shape[-1])
+            new_cnt = x.shape[0]
             x = x.to(torch.float64)
             x = (x.T @ x).detach().cpu()
             if feat_dict["x"] is None:
                 feat_dict["x"] = x
-                feat_dict["cnt"] = 1
+                feat_dict["cnt"] = x.shape[0]
             else:
                 cnt = feat_dict["cnt"]
-                feat_dict["x"] = cnt * feat_dict["x"] / (cnt + 1) + x / cnt
-                feat_dict["cnt"] = cnt + 1
+                feat_dict["x"] = feat_dict["x"] * (cnt / (cnt + new_cnt)) + x * (new_cnt / (cnt + new_cnt))
+                feat_dict["cnt"] = cnt + new_cnt
         handles = []
         for name, norm in named_norms.items():
             handles.append(
@@ -231,7 +233,11 @@ def get_projection_matrix(args, model, dataloader):
                 )
             )
         # get output as next layer's input
-        fp_outs = layer(fp_inps, attention_mask=attention_mask, position_ids=position_ids)[0]
+        BS = 32
+        for j in range(args.nsamples // BS):
+            st = j * BS
+            ed = min((j + 1) * BS, args.nsamples)
+            fp_outs[st:ed] = layer(fp_inps[st:ed], attention_mask=attention_mask, position_ids=position_ids)[0]
         fp_outs, fp_inps = fp_inps, fp_outs
         for h in handles:
             h.remove()
@@ -298,7 +304,10 @@ def decompose_model(args, model, trainloader, P):
             for name, module in layer.named_modules():
                 if isinstance(module, nn.Linear):
                     module.pod_rank = 0
+        return None
     else:
+        P = load_rotate_matrix(args, path=args.matrix_path) \
+            if args.reload_matrix else None
         if P is None:
             P = get_projection_matrix(args, model, trainloader)
         Q = get_orthogonal_matrix(model.config.hidden_size, args.pod_rank)
@@ -321,3 +330,5 @@ def decompose_model(args, model, trainloader, P):
             if isinstance(module, (Qwen2RMSNorm, LlamaRMSNorm)):
                 hidden_size = module.weight.shape[-1]
                 module.weight.data = module.weight.data.new_ones((hidden_size + args.pod_rank,))
+        if args.save_matrix and not args.reload_matrix:
+            save_rotate_matrix(args, P)

@@ -19,6 +19,7 @@ class FlatQuantQwen2MLP(torch.nn.Module):
     def __init__(self, args, module: Qwen2MLP):
         super().__init__()
         self.args = args
+        self.pod_size = args.pod_rank
         self.hidden_size = module.hidden_size
         self.intermediate_size = module.intermediate_size
         self.act_fn = module.act_fn
@@ -39,7 +40,7 @@ class FlatQuantQwen2MLP(torch.nn.Module):
         else:
             DecomposeTransMatrix = SVDDecomposeTransMatrix
         if self.args.w_bits < 16 or self.args.a_bits < 16:
-            up_dim_left, up_dim_right = get_decompose_dim(self.up_proj.linear.weight.shape[1])
+            up_dim_left, up_dim_right = get_decompose_dim(self.up_proj.linear.weight.shape[1] - self.pod_size)
             self.up_gate_trans = DecomposeTransMatrix(up_dim_left, up_dim_right, add_diag=self.args.add_diag)
             down_dim_left, down_dim_right = get_decompose_dim(self.down_proj.linear.weight.shape[1])
             self.down_trans = DecomposeTransMatrix(down_dim_left, down_dim_right, add_diag=self.args.add_diag)
@@ -48,7 +49,7 @@ class FlatQuantQwen2MLP(torch.nn.Module):
 
     def _trans_forward(self, x):
         if self.up_gate_trans is not None:
-            x_ts = self.up_gate_trans(x)
+            x_ts = torch.cat((x[..., :self.pod_size], self.up_gate_trans(x[..., self.pod_size:])), dim=-1)
         else:
             x_ts = x
         up_states = self.up_proj(x_ts, qa_trans=self.up_gate_trans)
@@ -99,7 +100,7 @@ class FlatQuantQwen2MLP(torch.nn.Module):
         upw_smax = torch.cat([self.up_proj.linear.weight, self.gate_proj.linear.weight], dim=0).abs().max(dim=0)[0]
         downw_smax = self.down_proj.linear.weight.abs().max(dim=0)[0]
         if self.up_gate_trans is not None:
-            self.up_gate_trans.diag_scale.data = get_init_scale(upw_smax, self.up_smax, alpha)
+            self.up_gate_trans.diag_scale.data = get_init_scale(upw_smax, self.up_smax, alpha)[self.pod_size:]
         if self.down_trans is not None:
             self.down_trans.diag_scale.data = get_init_scale(downw_smax, self.down_smax, alpha)
         del self.up_smax, self.down_smax
@@ -115,6 +116,7 @@ class FlatQuantQwen2Attention(Qwen2Attention):
     def __init__(self, args, module: Qwen2Attention):
         super().__init__(module.config, module.layer_idx)
         self.args = args
+        self.pod_size = args.pod_rank
         
         self.q_proj = FlatQuantizedLinear(args, module.q_proj)
         self.k_proj = FlatQuantizedLinear(args, module.k_proj)
@@ -144,7 +146,7 @@ class FlatQuantQwen2Attention(Qwen2Attention):
         else:
             SingleTransMatrix, DecomposeTransMatrix = SVDSingleTransMatrix, SVDDecomposeTransMatrix
         if self.args.w_bits < 16 or self.args.a_bits < 16:
-            ln_dim_left, ln_dim_right = get_decompose_dim(self.q_proj.linear.weight.shape[1])
+            ln_dim_left, ln_dim_right = get_decompose_dim(self.q_proj.linear.weight.shape[1] - self.pod_size)
             self.ln_trans = DecomposeTransMatrix(ln_dim_left, ln_dim_right, add_diag=self.args.add_diag)
             self.o_trans = SingleTransMatrix(self.config.num_attention_heads)
         else:
@@ -162,7 +164,8 @@ class FlatQuantQwen2Attention(Qwen2Attention):
 
     def _trans_forward_after_ln(self, hidden_states):
         if self.ln_trans is not None:
-            hidden_states = self.ln_trans(hidden_states)
+            hidden_states = torch.cat(
+                (hidden_states[..., :self.pod_size], self.ln_trans(hidden_states[..., self.pod_size:])), dim=-1)
         query_states = self.q_proj(hidden_states, qa_trans=self.ln_trans)
         key_states = self.k_proj(hidden_states, qa_trans=self.ln_trans)
         if self.args.separate_vtrans:
@@ -305,7 +308,7 @@ class FlatQuantQwen2Attention(Qwen2Attention):
         assert hasattr(self, "ln_smax")
         qkvw_smax = torch.cat([self.q_proj.linear.weight, self.k_proj.linear.weight, self.v_proj.linear.weight], dim=0).abs().max(dim=0)[0]
         if self.ln_trans is not None:
-            self.ln_trans.diag_scale.data = get_init_scale(qkvw_smax, self.ln_smax, alpha)
+            self.ln_trans.diag_scale.data = get_init_scale(qkvw_smax, self.ln_smax, alpha)[self.pod_size:]
         del self.ln_smax
         self.diag_init = None
 
