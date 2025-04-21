@@ -179,16 +179,17 @@ def get_projection_matrix(model, args):
         # firstly, get input features of all linear layers
         def cache_input_hook(m, x, y, name, feat_dict):
             x: torch.Tensor = x[0]
-            x = x.view(-1, hidden_dim)
+            x = x.view(-1, x.shape[-1])
+            new_cnt = x.shape[0]
             x = x.to(torch.float64)
             x = (x.T @ x).detach().cpu()
             if feat_dict["x"] is None:
                 feat_dict["x"] = x
-                feat_dict["cnt"] = 1
+                feat_dict["cnt"] = x.shape[0]
             else:
                 cnt = feat_dict["cnt"]
-                feat_dict["x"] = cnt * feat_dict["x"] / (cnt + 1) + x / cnt
-                feat_dict["cnt"] = cnt + 1
+                feat_dict["x"] = feat_dict["x"] * (cnt / (cnt + new_cnt)) + x * (new_cnt / (cnt + new_cnt))
+                feat_dict["cnt"] = cnt + new_cnt
         handles = []
         for name, norm in named_norms.items():
             assert isinstance(norm, module_utils.RMSN)
