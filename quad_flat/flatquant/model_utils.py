@@ -78,7 +78,7 @@ def get_opt(model_name):
 def get_model(model_name, hf_token=None):
     if 'llama' in model_name.lower():
         return get_llama(model_name, hf_token)
-    elif 'qwen-2.5' in model_name.lower():
+    elif 'qwen' in model_name.lower():
         return get_qwen2(model_name, hf_token)
     else:
         raise ValueError(f'Unknown model {model_name}')

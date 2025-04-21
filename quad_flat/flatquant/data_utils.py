@@ -211,8 +211,8 @@ def get_instruct(nsamples, seed, seqlen, tokenizer, eval_mode=False):
     code_dataset = datasets.load_dataset("json", data_files="../misc/data/CodeFeedback-Filtered-Instruction/CodeFeedback-Filtered-Instruction.jsonl")["train"]\
         .shuffle(seed=seed).select(range(nsamples))
     
-    math_samples = load_meta_math(math_dataset, tokenizer)
-    code_samples = load_codefeedback(code_dataset, tokenizer)
+    math_samples = load_meta_math(math_dataset, seed, tokenizer)
+    code_samples = load_codefeedback(code_dataset, seed, tokenizer)
     samples = math_samples + code_samples
     combined_text = combine_text(samples, tokenizer)
     

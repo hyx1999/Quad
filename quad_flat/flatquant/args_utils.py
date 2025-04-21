@@ -30,7 +30,7 @@ supported_models = [
 #             'Qwen/Qwen2.5-32B-Instruct', 
 #             'Qwen/Qwen2.5-7B-Instruct', 
 #             ]
-supported_datasets = ['wikitext2', 'c4', 'pile']
+supported_datasets = ['wikitext2', 'c4', 'pile', 'instruct']
 
 
 def parser_gen():
