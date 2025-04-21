@@ -298,7 +298,7 @@ def get_orthogonal_matrix(size, pod_rank, mode="hadamard", device=utils.DEV):
 
 
 @torch.no_grad()
-def decompose_model(args, model, trainloader, P):
+def decompose_model(args, model, trainloader):
     if args.pod_rank == 0:
         for layer in model_utils.get_layers(model):
             for name, module in layer.named_modules():
