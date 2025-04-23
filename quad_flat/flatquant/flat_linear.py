@@ -15,6 +15,7 @@ class FlatQuantizedLinear(nn.Module):
         self.weight_quantizer = WeightQuantizer()
         self.weight_quantizer.configure(args.w_bits, perchannel=True, sym=not(args.w_asym), mse=False)
         self.act_quantizer = ActivationQuantizer(bits=args.a_bits, sym=not(args.a_asym), lac=args.lac, groupsize=args.a_groupsize, )
+        self.adapter = None
 
         self.lwc = args.lwc
         if self.lwc:
@@ -25,6 +26,22 @@ class FlatQuantizedLinear(nn.Module):
             self.sigmoid = nn.Sigmoid()
 
         self._eval_mode = False
+
+    @torch.no_grad()
+    def add_adapter(self):
+        self.adapter = nn.Linear(
+            in_features=self.pod_size,
+            out_features=self.linear.out_features,
+            bias=False,
+            dtype=self.linear.weight.dtype,
+            device=self.linear.weight.device,
+        )
+        self.adapter.weight.data.zero_()
+
+    @torch.no_grad()
+    def merge_adapter(self):
+        self.linear.weight.data[:, :self.pod_size] += self.adapter.weight.data
+        self.adapter = None
 
     def apply_wclip(self, weight):
         wmin, wmax = weight.min(1, keepdim=True)[0], weight.max(1, keepdim=True)[0]
@@ -84,6 +101,8 @@ class FlatQuantizedLinear(nn.Module):
         hidden_states = torch.cat(
             (hidden_states[..., :self.pod_size], self.act_quantizer(hidden_states[..., self.pod_size:]).to(x_dtype)), dim=-1)
         output = self.linear(hidden_states)
+        if self.adapter is not None:
+            output = output + self.adapter(hidden_states[..., :self.pod_size])
         return output
 
     def reparameterize(self, qa_trans=None, out_trans=None):
