@@ -29,3 +29,4 @@ CMakeCache.txt
 *.egg
 Makefile
 outputs
+third-party
