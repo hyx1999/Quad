@@ -18,7 +18,7 @@ from datasets import load_dataset
 from accelerate import Accelerator
 from tqdm import tqdm
 from flatquant.flat_linear import FlatQuantizedLinear
-from finetune_utils import process_sft_data, get_cosine_schedule_with_warmup
+from finetune_utils import process_sft_data, process_pretrain_data, get_cosine_schedule_with_warmup
 
 def load_model(args, logger):
     utils.seed_everything(seed=args.seed)
@@ -112,8 +112,18 @@ def main():
         model.resize_token_embeddings(len(tokenizer))
 
     assert args.dataset_name is not None
-    raw_datasets = load_dataset("json", data_files=args.dataset_name)
-    lm_datasets = process_sft_data(args, raw_datasets, tokenizer, accelerator)
+    if "alpaca" in args.dataset_name:
+        raw_datasets = load_dataset("json", data_files=args.dataset_name)
+        lm_datasets = process_sft_data(args, raw_datasets, tokenizer, accelerator)
+    elif "wikitext" in args.dataset_name:
+        raw_datasets = load_dataset("parquet", data_files={
+            "train": os.path.join(args.dataset_name, "train-*.parquet"),
+            "test": os.path.join(args.dataset_name, "test-*.parquet"),
+            "validation": os.path.join(args.dataset_name, "validation-*.parquet"),
+        })
+        lm_datasets = process_pretrain_data(args, raw_datasets, tokenizer, accelerator)
+    else:
+        raise ValueError        
 
     train_dataset = lm_datasets["train"]
     eval_dataset = lm_datasets["validation"]
