@@ -18,6 +18,7 @@ from datasets import load_dataset
 from accelerate import Accelerator, PartialState
 from tqdm import tqdm
 from flatquant.flat_linear import FlatQuantizedLinear
+from flatquant.quant_utils import ActivationQuantizer
 from finetune_utils import process_sft_data, process_pretrain_data, get_cosine_schedule_with_warmup
 
 def load_model(args, logger):
@@ -41,17 +42,19 @@ def load_model(args, logger):
 
 def add_adapters(model):
     for name, module in model.named_modules():
-        if any(x in name for x in ["q_proj", "k_proj", "v_proj", "up_proj", "gate_proj"]) \
-            and isinstance(module, FlatQuantizedLinear):
-            module.add_adapter()
+        # if any(x in name for x in ["q_proj", "k_proj", "v_proj", "up_proj", "gate_proj"]) \
+        #     and isinstance(module, FlatQuantizedLinear):
+        #     module.add_adapter()
         if isinstance(module, FlatQuantizedLinear):
-            module.act_quantizer.enable = False
+            module.add_scale()
 
 def merge_adapters(model):
     for name, module in model.named_modules():
-        if any(x in name for x in ["q_proj", "k_proj", "v_proj", "up_proj", "gate_proj"]) \
-            and isinstance(module, FlatQuantizedLinear):
-            module.merge_adapter()
+        # if any(x in name for x in ["q_proj", "k_proj", "v_proj", "up_proj", "gate_proj"]) \
+        #     and isinstance(module, FlatQuantizedLinear):
+        #     module.merge_adapter()
+        if isinstance(module, FlatQuantizedLinear):
+            module.merge_scale()
 
 def main():
     args, _ = args_utils.parser_gen()
@@ -142,7 +145,7 @@ def main():
     # Optimizer
     # Split weights in two groups, one with weight decay and the other not.
     for n, p in model.named_parameters():
-        if not any(key in n for key in ["adapter"]):
+        if not any(key in n for key in ["adapter", "adapter_scale"]):
             p.requires_grad = False
     no_decay = ["bias", "layernorm.weight"]
     optimizer_grouped_parameters = [

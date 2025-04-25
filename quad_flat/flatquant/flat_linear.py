@@ -16,6 +16,7 @@ class FlatQuantizedLinear(nn.Module):
         self.weight_quantizer = WeightQuantizer()
         self.weight_quantizer.configure(args.w_bits, perchannel=True, sym=not(args.w_asym), mse=False)
         self.act_quantizer = ActivationQuantizer(bits=args.a_bits, sym=not(args.a_asym), lac=args.lac, groupsize=args.a_groupsize, )
+        self.adapter_scale = None
         self.adapter = None
 
         self.lwc = args.lwc
@@ -29,10 +30,25 @@ class FlatQuantizedLinear(nn.Module):
         self._eval_mode = False
 
     @torch.no_grad()
+    def add_scale(self):
+        self.adapter_scale = nn.Parameter(
+            torch.ones(
+                self.linear.weight.shape[0],
+                dtype=self.linear.weight.dtype,
+                device=self.linear.weight.device,
+            )
+        )
+
+    @torch.no_grad()
+    def merge_scale(self):
+        self.linear.weight.data *= self.adapter_scale.data[:, None]
+        self.adapter_scale = None
+
+    @torch.no_grad()
     def add_adapter(self):
         self.adapter = nn.Linear(
             in_features=self.pod_size,
-            out_features=self.linear.out_features,
+            out_features=self.linear.weight.shape[0],
             bias=False,
             dtype=self.linear.weight.dtype,
             device=self.linear.weight.device,
@@ -90,6 +106,8 @@ class FlatQuantizedLinear(nn.Module):
         output = F.linear(hidden_states, weight, bias)
         if self.adapter is not None:
             output = output + self.adapter(hidden_states[..., :self.pod_size])
+        if self.adapter_scale is not None:
+            output = output * self.adapter_scale
         return output
 
     def forward(self, hidden_states, qa_trans=None, out_trans=None):
@@ -106,6 +124,8 @@ class FlatQuantizedLinear(nn.Module):
         output = self.linear(hidden_states)
         if self.adapter is not None:
             output = output + self.adapter(hidden_states[..., :self.pod_size])
+        if self.adapter_scale is not None:
+            output = output * self.adapter_scale
         return output
 
     def reparameterize(self, qa_trans=None, out_trans=None):
