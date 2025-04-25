@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import flatquant.flat_utils as flat_utils
 from flatquant.quant_utils import WeightQuantizer, ActivationQuantizer
 from flatquant.flat_utils import kronecker_matmul
+
 
 class FlatQuantizedLinear(nn.Module):
     def __init__(self, args, linear: nn.Linear):
@@ -87,6 +88,8 @@ class FlatQuantizedLinear(nn.Module):
         else:
             bias = self.linear.bias
         output = F.linear(hidden_states, weight, bias)
+        if self.adapter is not None:
+            output = output + self.adapter(hidden_states[..., :self.pod_size])
         return output
 
     def forward(self, hidden_states, qa_trans=None, out_trans=None):
@@ -106,21 +109,22 @@ class FlatQuantizedLinear(nn.Module):
         return output
 
     def reparameterize(self, qa_trans=None, out_trans=None):
-        weight = self.linear.weight.data
-        ori_dtype = weight.dtype
-        weight = weight.to(torch.float64)
-        weight_full, weight = weight[:, :self.pod_size], weight[:, self.pod_size:]
-        # quantization-adaptive transform
-        if qa_trans is not None:
-            weight = self.apply_trans(weight, qa_trans)
-        if self.lwc:
-            weight = self.apply_wclip(weight)
-        if out_trans is not None:
-            weight = out_trans(weight.T).T
-        if out_trans is not None and self.pod_size > 0:
-            weight_full = out_trans(weight_full.T).T
-        if out_trans is not None and self.linear.bias is not None:
-            self.linear.bias.data = out_trans(self.linear.bias.data)
-        weight = torch.cat((weight_full, weight), dim=1)       
-        self.linear.weight.data = weight.to(ori_dtype)
+        if not flat_utils.FakeRep:
+            weight = self.linear.weight.data
+            ori_dtype = weight.dtype
+            weight = weight.to(torch.float64)
+            weight_full, weight = weight[:, :self.pod_size], weight[:, self.pod_size:]
+            # quantization-adaptive transform
+            if qa_trans is not None:
+                weight = self.apply_trans(weight, qa_trans)
+            if self.lwc:
+                weight = self.apply_wclip(weight)
+            if out_trans is not None:
+                weight = out_trans(weight.T).T
+            if out_trans is not None and self.pod_size > 0:
+                weight_full = out_trans(weight_full.T).T
+            if out_trans is not None and self.linear.bias is not None:
+                self.linear.bias.data = out_trans(self.linear.bias.data)
+            weight = torch.cat((weight_full, weight), dim=1)       
+            self.linear.weight.data = weight.to(ori_dtype)
         self._eval_mode = True

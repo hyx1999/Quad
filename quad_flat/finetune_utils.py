@@ -172,7 +172,8 @@ def process_pretrain_data(
             batched=True,
             desc=f"Grouping texts in chunks of {block_size}",
         )
-        lm_datasets["train"] = lm_datasets["train"].select(range(25000))
+        if len(lm_datasets["train"]) > 25000:
+            lm_datasets["train"] = lm_datasets["train"].select(range(25000))
         if "test" not in lm_datasets:
             lm_datasets = lm_datasets["train"].train_test_split(
                 test_size=args.val_set_size, shuffle=True, seed=args.seed

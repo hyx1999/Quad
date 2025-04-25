@@ -14,10 +14,9 @@ def load_model(args, logger):
 
     model, apply_flatquant_to_model = model_utils.get_model(args.model, args.hf_token)
 
-    pod_utils.fuse_layer_norms(model)
-    pod_utils.decompose_model(args, model, None)
+    pod_utils.expand_model(args, model, None)
     model = apply_flatquant_to_model(args, model)
-    flat_utils.load_flat_matrices(args, model, path=args.matrix_path)
+    flat_utils.FakeRep = True
     flat_utils.reparameterize_model(model)
     logger.info("Finished reparameterize model.")
     

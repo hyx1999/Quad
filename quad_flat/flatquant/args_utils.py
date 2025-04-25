@@ -86,6 +86,8 @@ def parser_gen():
                         help="Use learnable weight clipping.")
     parser.add_argument("--lac", default=False, action="store_true", 
                         help="Use learnable activation clipping.")
+    parser.add_argument("--ladapter", default=False, action="store_true", 
+                        help="Use learnable adapter.")
     parser.add_argument('--resume', action="store_true", default=False, 
                         help='Resume from a previous checkpoint for evaluation.')
     parser.add_argument('--save_matrix', action="store_true", default=False, 

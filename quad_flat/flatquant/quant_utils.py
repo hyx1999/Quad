@@ -1,4 +1,15 @@
 import torch
+from torch.autograd import Function
+
+class QuantSTE(Function):
+    
+    @staticmethod
+    def forward(ctx, x, quant_fn):
+        return quant_fn(x)
+
+    @staticmethod
+    def backward(ctx, grad_x):
+        return grad_x, None
 
 def round_ste(x: torch.Tensor):
     """
@@ -71,7 +82,8 @@ class ActivationQuantizer(torch.nn.Module):
     def forward(self, x):
         if self.bits == 16 or (not self.enable):
             return x
-        fq_x = self.fake_quant(x)
+        # fq_x = self.fake_quant(x)
+        fq_x = QuantSTE.apply(x, self.fake_quant)
         return fq_x
 
     def fake_quant(self, x):

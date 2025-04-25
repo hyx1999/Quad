@@ -157,7 +157,6 @@ def get_projection_matrix(args, model, dataloader):
     if hasattr(model.model, "rotary_emb"):
         model.model.rotary_emb = model.model.rotary_emb.to(dev)
 
-    batch_size = 32
     nsamples = args.nsamples
     seqlen = min(512, model.seqlen)
 
@@ -332,3 +331,35 @@ def decompose_model(args, model, trainloader):
                 module.weight.data = module.weight.data.new_ones((hidden_size + args.pod_rank,))
         if args.save_matrix and not args.reload_matrix:
             save_rotate_matrix(args, P)
+
+
+@torch.no_grad()
+def expand_model(args, model, trainloader):
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            if any(x in name for x in ["q_proj", "k_proj", "v_proj", "up_proj", "gate_proj"]):
+                module.weight.data = module.weight.data.new_empty(
+                    (module.out_features, module.in_features + args.pod_rank)
+                )
+                module.pod_rank = args.pod_rank
+            elif any(x in name for x in ["o_proj", "down_proj"]):
+                module.weight.data = module.weight.data.new_empty(
+                    (module.out_features + args.pod_rank, module.in_features)
+                )
+                module.pod_rank = 0
+                if hasattr(module, "bias") and module.bias is not None:
+                    module.bias.data = module.bias.data.new_empty(
+                        (module.out_features + args.pod_rank,)
+                    )
+        elif isinstance(module, (Qwen2RMSNorm, LlamaRMSNorm)):
+            module.weight.data = module.weight.data.new_empty(
+                (module.weight.shape[0] + args.pod_rank,)
+            )
+    for W in model_utils.get_embeddings(model):
+        W.weight.data = W.weight.data.new_empty(
+            (W.weight.shape[0], W.weight.shape[1] + args.pod_rank)
+        )
+    W = model_utils.get_lm_head(model)
+    W.weight.data = W.weight.data.new_empty(
+        (W.out_features, W.in_features + args.pod_rank)
+    )

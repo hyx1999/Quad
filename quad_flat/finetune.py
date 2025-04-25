@@ -15,24 +15,21 @@ import flatquant.eval_utils as eval_utils
 from accelerate.logging import get_logger
 from torch.utils.data import DataLoader
 from datasets import load_dataset
-from accelerate import Accelerator
+from accelerate import Accelerator, PartialState
 from tqdm import tqdm
 from flatquant.flat_linear import FlatQuantizedLinear
 from finetune_utils import process_sft_data, process_pretrain_data, get_cosine_schedule_with_warmup
 
 def load_model(args, logger):
     utils.seed_everything(seed=args.seed)
-
     model, apply_flatquant_to_model = model_utils.get_model(args.model, args.hf_token)
-
-    pod_utils.fuse_layer_norms(model)
-    pod_utils.decompose_model(args, model, None)
+    
+    pod_utils.expand_model(args, model, None)
     model = apply_flatquant_to_model(args, model)
-    flat_utils.load_flat_matrices(args, model, path=args.matrix_path)
+    flat_utils.FakeRep = True
     flat_utils.reparameterize_model(model)
     logger.info("Finished reparameterize model.")
     
-    model.to(utils.DEV).to(utils.DEV)
     model.config.pod_rank = args.pod_rank
     
     state_dict = torch.load(os.path.join(args.exp_dir, "model.ckpt"))
@@ -47,12 +44,14 @@ def add_adapters(model):
         if any(x in name for x in ["q_proj", "k_proj", "v_proj", "up_proj", "gate_proj"]) \
             and isinstance(module, FlatQuantizedLinear):
             module.add_adapter()
+        if isinstance(module, FlatQuantizedLinear):
+            module.act_quantizer.enable = False
 
 def merge_adapters(model):
     for name, module in model.named_modules():
         if any(x in name for x in ["q_proj", "k_proj", "v_proj", "up_proj", "gate_proj"]) \
             and isinstance(module, FlatQuantizedLinear):
-            module.merge_adapter()    
+            module.merge_adapter()
 
 def main():
     args, _ = args_utils.parser_gen()
@@ -80,6 +79,7 @@ def main():
         transformers.utils.logging.set_verbosity_error()
 
     accelerator.wait_for_everyone()
+    utils.DEV = "cuda:{}".format(accelerator.process_index)
 
     model = load_model(args, logger)
     add_adapters(model)
@@ -87,23 +87,23 @@ def main():
     tokenizer.pad_token_id = 0 # unk. we want this to be different from the eos token
     tokenizer.padding_side = "left"  # Allow batched inference
 
-    with torch.no_grad():
-        model.eval()
-        for eval_dataset in ["wikitext2"]:
-            logger.info(eval_dataset)
-            testloader = data_utils.get_loaders(
-                    args,
-                    eval_dataset,
-                    seed=args.seed,
-                    model=args.model,
-                    seqlen=model.seqlen,
-                    hf_token=args.hf_token,
-                    eval_mode=True
-                )
-            dataset_ppl = eval_utils.ppl_eval(model, testloader)
-            logger.info(dataset_ppl)
-            print("dataset_ppl:", dataset_ppl)
-        model.train()
+    # with torch.no_grad():
+    #     model.eval()
+    #     for eval_dataset in ["wikitext2"]:
+    #         logger.info(eval_dataset)
+    #         testloader = data_utils.get_loaders(
+    #                 args,
+    #                 eval_dataset,
+    #                 seed=args.seed,
+    #                 model=args.model,
+    #                 seqlen=model.seqlen,
+    #                 hf_token=args.hf_token,
+    #                 eval_mode=True
+    #             )
+    #         dataset_ppl = eval_utils.ppl_eval(model, testloader)
+    #         logger.info(dataset_ppl)
+    #         print("dataset_ppl:", dataset_ppl)
+    model.train()
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.

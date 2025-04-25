@@ -11,7 +11,7 @@ from accelerate.utils import get_balanced_memory
 # These flags disable using TensorFloat-32 tensor cores (to avoid numerical issues)
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
-DEV = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+DEV = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 
 def skip(*args, **kwargs):

@@ -29,7 +29,15 @@ class FlatQuantLlamaMLP(LlamaMLP):
         if self.diag_init == "sq_style":
             self.up_smax = torch.ones_like(self.up_proj.linear.weight.abs().max(dim=0)[0]).cuda() * 1e-5
             self.down_smax = torch.ones_like(self.down_proj.linear.weight.abs().max(dim=0)[0]).cuda() * 1e-5
-        
+
+    def add_adapter(self):
+        self.up_proj.add_adapter()
+        self.gate_proj.add_adapter()
+    
+    def merge_adapter(self):
+        self.up_proj.merge_adapter()
+        self.gate_proj.merge_adapter()
+
     def add_fq_trans(self):
         if self.args.direct_inv:
             DecomposeTransMatrix = InvDecomposeTransMatrix
@@ -137,7 +145,17 @@ class FlatQuantLlamaAttention(LlamaAttention):
         self.diag_init = args.diag_init
         if self.diag_init == "sq_style":
             self.ln_smax = torch.ones_like(self.q_proj.linear.weight.abs().max(dim=0)[0]).cuda() * 1e-5
-
+    
+    def add_adapter(self):
+        self.q_proj.add_adapter()
+        self.k_proj.add_adapter()
+        self.v_proj.add_adapter()
+    
+    def merge_adapter(self):
+        self.q_proj.merge_adapter()
+        self.k_proj.merge_adapter()
+        self.v_proj.merge_adapter()
+    
     def add_fq_trans(self):
         if self.args.direct_inv:
             SingleTransMatrix, DecomposeTransMatrix = InvSingleTransMatrix, InvDecomposeTransMatrix
